@@ -4330,9 +4330,12 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.5.1';
-const APP_CODE = 53;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.5.2';
+const APP_CODE = 54;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.5.2', code:54, date:'2026-11-05', notes:[
+    '修复锁屏媒体控制不显示的问题：原生插件注册时机不对（须在系统初始化之前），导致播放页面根本连不上原生服务。'
+  ]},
   { v:'1.5.1', code:53, date:'2026-11-05', notes:[
     '缓存上限新增「8 GB」「20 GB」两档（最高 20 GB）：高清/无损歌曲一首 30~80MB，重度听众可以放心多存。'
   ]},
