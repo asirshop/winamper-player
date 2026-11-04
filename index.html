@@ -4342,9 +4342,12 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.6.1';
-const APP_CODE = 57;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.6.2';
+const APP_CODE = 58;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.6.2', code:58, date:'2026-11-05', notes:[
+    '修复：帮助页「检查更新」点了没反应的问题（更新弹窗没有弹出）。现在点击后会直接弹出更新窗口并开始检查。'
+  ]},
   { v:'1.6.1', code:57, date:'2026-11-05', notes:[
     '帮助弹窗里新增「检查更新」按钮：不用再找版本号入口，打开帮助页直接就能检查和升级（当前版本号显示在按钮上）。'
   ]},
@@ -5006,7 +5009,7 @@ if($('pgHelpBtn')) $('pgHelpBtn').addEventListener('click',function(){
   if(cu){
     var isEn=(typeof window.__wmLang==='function')&&window.__wmLang()==='en';
     cu.textContent=isEn?('Check Updates (now v'+APP_VER+')'):('检查更新（当前 v'+APP_VER+'）');
-    cu.onclick=function(){ $('helpMask').classList.remove('show'); checkUpdateManual(); };
+    cu.onclick=function(){ $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual(); };
   }
 });
 /* 反馈链接：按当前界面语言生成对应的 Issue 模板（用户点开就已填好设备与版本） */
