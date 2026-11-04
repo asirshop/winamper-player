@@ -1154,6 +1154,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <button id="btnProbeApis">探测全部接口</button>
       <button id="btnClearApis">清空自定义</button>
       <input type="text" id="apiSubUrl" placeholder="订阅清单地址（一个 .json 直链，点右边拉取；没有就先点「导出清单」生成一份放到网盘/仓库）">
+      <button id="btnCommunitySrc" title="一键启用官方社区源：清单放在 GitHub 仓库里，由机器人每 6 小时自动巡检，死源自动剔除">启用社区源</button>
       <button id="btnPullSub" title="从订阅地址拉取接口清单，自动去重、探测、记住可用的">拉取订阅</button>
       <button id="btnExportSub" title="把当前接口清单导出成 JSON，放到任意可公开访问的地址即可当订阅源">导出清单</button>
       <button id="btnCheckSub" title="立即检查订阅清单有没有新版本（有变化会自动应用）">检查更新</button>
@@ -4342,9 +4343,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.6.2';
-const APP_CODE = 58;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.6.3';
+const APP_CODE = 59;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.6.3', code:59, date:'2026-11-05', notes:[
+    'API源面板新增「启用社区源」一键按钮：接口清单托管在 GitHub 仓库，机器人定期巡检，死源自动标记、可用源优先——接口全挂时不用再自己找地址。',
+    '搜索全部失败时的提示里也会引导一键启用社区源。'
+  ]},
   { v:'1.6.2', code:58, date:'2026-11-05', notes:[
     '修复：帮助页「检查更新」点了没反应的问题（更新弹窗没有弹出）。现在点击后会直接弹出更新窗口并开始检查。'
   ]},
@@ -5295,7 +5300,7 @@ async function searchAll(kw){
   }
   return null;
 }
-const FAIL_HTML='<div class="s-empty">所有接口都没返回结果（共试了 {n} 个）。<br>可能原因：接口地址变了、断网、或被浏览器跨域拦截。<br>解决办法：点右上「API源」→ 把新接口地址贴进去 →「添加并探测」，能用的会自动记住；也可以直接用本地音乐。</div>';
+const FAIL_HTML='<div class="s-empty">所有接口都没返回结果（共试了 {n} 个）。<br>可能原因：接口地址变了、断网、或被浏览器跨域拦截。<br>解决办法：点右上「API源」→ 点「启用社区源」一键换上机器人自动维护的新接口；或把新地址贴进去 →「添加并探测」；也可以直接用本地音乐。</div>';
 async function doSearch(){
   const kw=$('searchInput').value.trim();
   if(!kw){ toast('请输入搜索关键词','warn'); return; }
@@ -5428,6 +5433,31 @@ async function syncFromList(list, opts){
   renderSrcState();
   return {added:added.length, removed:removed.length, alive:alive, targets:targets.length, first:first};
 }
+/* 社区源：清单托管在 GitHub 仓库（Actions 机器人每 6 小时巡检），jsDelivr CDN 国内可达 */
+const COMMUNITY_FEEDS=[
+  'https://cdn.jsdelivr.net/gh/asirshop/winamper-player@main/sources.json',
+  'https://raw.githubusercontent.com/asirshop/winamper-player/main/sources.json'
+];
+$('btnCommunitySrc').addEventListener('click',async function(){
+  const btn=this, old=btn.disabled; btn.disabled=true; btn.textContent='启用中…';
+  let txt=null, used='';
+  for(const u of COMMUNITY_FEEDS){
+    txt=await fetchText(u);
+    if(txt!=null){ used=u; break; }
+  }
+  btn.disabled=old; btn.textContent='启用社区源';
+  if(txt==null){ toast('社区源暂时拉不到（网络原因），稍后再试','err'); return; }
+  try{ localStorage.setItem(SUB_KEY,used); }catch(e){}
+  if($('apiSubUrl')) $('apiSubUrl').value=used;
+  const parsed=parseSubList(txt);
+  if(!parsed.list.length){ toast('社区源清单是空的','warn'); return; }
+  const r=await syncFromList(parsed.list,{probeAll:true});
+  const sum=readSubMeta(txt);
+  try{ localStorage.setItem(SUB_META_KEY, JSON.stringify({url:used, at:Date.now(), ver:sum.ver, count:parsed.list.length})); }catch(e){}
+  renderSubMeta(); renderSrcState();
+  toast('社区源已启用：导入 '+r.added+' 个接口（机器人自动巡检，死源会自动剔除）','ok');
+});
+
 $('btnPullSub').addEventListener('click',async function(){
   const inp=$('apiSubUrl'), url=String(inp.value||'').trim();
   if(!/^https?:\/\//i.test(url)){ toast('先填一个订阅清单地址（http(s):// 开头的 .json 直链）','warn'); return; }
