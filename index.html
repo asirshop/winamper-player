@@ -2867,6 +2867,7 @@ function updateDisplay(){
   const art=tr?String(tr.art||'').trim():'';
   $('dArt').textContent=art||'未知歌手';
 
+  try{ nativeMusicSync(); }catch(e){}   /* 锁屏/通知栏媒体控制：状态一变就同步 */
   /* 收藏按钮状态跟随当前曲目 */
   const favB=$('btnFavNow');
   if(favB){
@@ -2902,6 +2903,40 @@ function play(){
 }
 function pause(){ activeEl.pause(); state.playing=false; setIcon(false); updateDisplay(); }
 function toggle(){ if(state.playing) pause(); else play(); }
+
+/* ================= 锁屏/通知栏媒体控制（仅安卓 APK 内生效） ================= */
+/* 原生侧 MusicPlugin 起前台服务 + MediaSession：锁屏显示歌名/歌手/进度，可播放/暂停/切歌；
+   同时保证后台、锁屏时音频不被系统冻结。网页版打开时这些对象不存在，全部自动跳过。 */
+let __nmPlugin=null, __nmLast=0, __nmMeta='';
+try{
+  if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()&&Capacitor.Plugins&&Capacitor.Plugins.MusicPlugin){
+    __nmPlugin=Capacitor.Plugins.MusicPlugin;
+    __nmPlugin.addListener&&__nmPlugin.addListener('musicAction',function(e){
+      const a=e&&(e.action||e.data&&e.data.action);
+      if(a==='play') play();
+      else if(a==='pause') pause();
+      else if(a==='next'){ const pl=currentPl(); if(pl&&pl.tracks.length) loadTrack((state.track+1)%pl.tracks.length); }
+      else if(a==='prev'){ const pl=currentPl(); if(pl&&pl.tracks.length) loadTrack(state.track>0?state.track-1:pl.tracks.length-1); }
+    });
+  }
+}catch(e){}
+function nativeMusicSync(force){
+  if(!__nmPlugin) return;
+  const pl=currentPl();
+  const tr=(state.track>=0&&pl&&pl.tracks[state.track])?pl.tracks[state.track]:null;
+  const title=tr?tr.name:'', artist=tr?String(tr.art||'').trim():'';
+  const pos=Math.round(state.cur||0), dur=Math.round(state.dur||0);
+  const metaKey=title+'|'+artist+'|'+state.playing;
+  const now=Date.now();
+  /* 元数据变了立刻同步；仅进度变化则节流到 3 秒一次（锁屏进度条不需要逐帧） */
+  if(metaKey!==__nmMeta||force){ __nmMeta=metaKey; __nmLast=now; }
+  else if(now-__nmLast<3000&&!force) return;
+  else __nmLast=now;
+  try{
+    if(!tr&&!state.playing){ __nmPlugin.stop(); return; }
+    __nmPlugin.update({title:title,artist:artist,playing:!!state.playing,pos:pos,dur:dur,art:''});
+  }catch(e){}
+}
 function stop(){ audio.pause(); audioO.pause(); audioB.pause(); audio.currentTime=0; audioO.currentTime=0; audioB.currentTime=0; state.playing=false; state.cur=0; setIcon(false); seekRender(); updateDisplay(); }
 /* ---- 网络歌曲：先原生出声(任何引擎) + 后台取同源blob到手即热切出频谱；桌面保留原CORS流式路径 ---- */
 const isMobile = /Android|iPhone|iPad|iPod|Windows Phone|Symbian|Mobile|SogouMobileBrowser|MQQBrowser|QQBrowser|MicroMessenger|HarmonyOS|MiuiBrowser/i.test(navigator.userAgent) || (('ontouchstart' in window) && window.innerWidth<900);
@@ -3191,7 +3226,7 @@ function bindAudio(el){
   el.addEventListener('seeked',function(){ if(el!==activeEl) return; setBuffering(false); });
   el.addEventListener('timeupdate',function(){ if(el!==activeEl) return; if(state.playing) maybePrefetch(); });
   el.addEventListener('loadedmetadata',()=>{ if(el!==activeEl) return; state.dur=el.duration||0; $('totTime').textContent=fmtDur(state.dur); renderProg(); if(el===audioO) routeOnline(); });
-  el.addEventListener('timeupdate',()=>{ if(el!==activeEl) return; state.cur=el.currentTime||0; seekRender(); updateLrc(state.cur); });
+  el.addEventListener('timeupdate',()=>{ if(el!==activeEl) return; state.cur=el.currentTime||0; seekRender(); updateLrc(state.cur); try{ nativeMusicSync(); }catch(e){} });
   el.addEventListener('ended',onEnded);
   el.addEventListener('play',()=>{ if(el!==activeEl) return; state.playing=true; setIcon(true); updateDisplay(); });
   el.addEventListener('pause',()=>{ if(el!==activeEl) return; state.playing=false; setIcon(false); });
@@ -4293,9 +4328,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.4.0';
-const APP_CODE = 51;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.5.0';
+const APP_CODE = 52;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.5.0', code:52, date:'2026-11-05', notes:[
+    '新增「锁屏 / 通知栏播放控制」（安卓 App）：锁屏界面显示歌名、歌手与进度，可直接播放、暂停、切上一首/下一首。',
+    '后台稳定播放：改用原生前台媒体服务撑住播放进程，回桌面、锁屏后音乐不再被系统冻结。',
+    '退出播放器时自动收起媒体通知；网页版行为完全不变（此功能仅 APK 内生效）。'
+  ]},
   { v:'1.4.0', code:51, date:'2026-11-04', notes:[
     '新增「听过的歌自动缓存」：首次在线听完的歌存进本机（IndexedDB 持久化，关掉 App 也不丢），以后再听直接从本地取，不再花流量。',
     '缓存键按「歌名+歌手+音质」记录，不再依赖接口给的有时效链接；同一首歌换接口、换链接都能命中。',
@@ -4919,6 +4959,7 @@ function applyImportData(text, fname){
 /* ================= 退出按钮 ================= */
 $('btnExitApp').addEventListener('click',async ()=>{
   flushSave();                                  /* 退出前把所有待写数据落盘 */
+  try{ if(__nmPlugin){ __nmMeta=''; await __nmPlugin.stop(); } }catch(e){}   /* 收起锁屏媒体通知 */
   try{
     const cap=window.Capacitor;
     if(cap&&cap.isNativePlatform&&cap.isNativePlatform()&&cap.Plugins&&cap.Plugins.App){
