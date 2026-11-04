@@ -2915,10 +2915,12 @@ try{
     __nmPlugin=Capacitor.Plugins.MusicPlugin;
     __nmPlugin.addListener&&__nmPlugin.addListener('musicAction',function(e){
       const a=e&&(e.action||e.data&&e.data.action);
+      const p=e&&((e.pos!=null?e.pos:e.data&&e.data.pos)||0);
       if(a==='play') play();
       else if(a==='pause') pause();
       else if(a==='next'){ const pl=currentPl(); if(pl&&pl.tracks.length) loadTrack((state.track+1)%pl.tracks.length); }
       else if(a==='prev'){ const pl=currentPl(); if(pl&&pl.tracks.length) loadTrack(state.track>0?state.track-1:pl.tracks.length-1); }
+      else if(a==='seek'&&activeEl&&p>0){ try{ activeEl.currentTime=p/1000; state.cur=p/1000; seekRender(); updateLrc(state.cur); }catch(err){} }
     });
   }
 }catch(e){}
@@ -2930,9 +2932,10 @@ function nativeMusicSync(force){
   const pos=Math.round(state.cur||0), dur=Math.round(state.dur||0);
   const metaKey=title+'|'+artist+'|'+state.playing;
   const now=Date.now();
-  /* 元数据变了立刻同步；仅进度变化则节流到 3 秒一次（锁屏进度条不需要逐帧） */
+  /* 元数据变了立刻同步；播放中进度 1 秒一推（锁屏进度条要能持续走）；暂停/停了只推一次 */
   if(metaKey!==__nmMeta||force){ __nmMeta=metaKey; __nmLast=now; }
-  else if(now-__nmLast<3000&&!force) return;
+  else if(!state.playing) return;
+  else if(now-__nmLast<1000) return;
   else __nmLast=now;
   try{
     if(!tr&&!state.playing){ __nmPlugin.stop(); return; }
@@ -3048,14 +3051,16 @@ function routeOnline(){
 function startOnlineBlob(url, tr, blob){
   opStage=3; opSrc=url; blobTarget=url; blobReady=blob;
   try{
-    const bu=URL.createObjectURL(blob);
-    if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} }
-    lastBlob=bu;
+    if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} lastBlob=null; }
+    lastBlob=URL.createObjectURL(blob);
+    audioO.setAttribute('data-blob','1');
     audioO.removeAttribute('crossorigin');
-    audioO.src=bu;
+    /* 与 adoptBlob 同款挂接：先接频谱链路，loadedmetadata 后再接一次（部分机型首次会掉链） */
+    ensureOAttached();
+    audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); ensureOAttached(); },{once:true});
+    audioO.src=lastBlob;
     setActive(audioO);
-    spFade=0;
-    if(!isMobile) routeOnline();
+    spFade=0; specDead=0;
   }catch(e){ startOnline(url, tr); }
 }
 function startOnline(url, tr){
@@ -4330,9 +4335,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.5.2';
-const APP_CODE = 54;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.5.3';
+const APP_CODE = 55;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.5.3', code:55, date:'2026-11-05', notes:[
+    '修复：首次播放「已缓存歌曲」时频谱（极光/星环等）不动的问题 —— 缓存直播路径漏了把音频接进频谱链路，现在与在线播放同一条链路。',
+    '锁屏进度条优化：播放中每秒同步一次进度；锁屏进度条现在支持拖动定位，拖完立即跳转。'
+  ]},
   { v:'1.5.2', code:54, date:'2026-11-05', notes:[
     '修复锁屏媒体控制不显示的问题：原生插件注册时机不对（须在系统初始化之前），导致播放页面根本连不上原生服务。'
   ]},
