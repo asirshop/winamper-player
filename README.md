@@ -1,5 +1,7 @@
 # WINAMPER 金玉版 (WINAMPER Gold)
 
+<p align="center"><img src=".github/social-preview.png" alt="WINAMPER Gold — lightweight single-file music player" width="720"></p>
+
 **A lightweight, single-file music player for the web and Android.**
 Local playback + online search, 10-band EQ, 5 spectrum visualizers, 3 languages — in a 3.7 MB APK or one 330 KB HTML file.
 
