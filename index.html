@@ -591,6 +591,21 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .nick-row .nick-ok, .nick-row .nick-cancel { width: 34px; min-width: 34px; padding: 0; font-size: 14px; }
 .nick-row .nick-cancel { color: #ff8a8a; }
 .modal-tip { font-size: 11px; color: var(--txt-dim); line-height: 1.6; }
+/* ---- 缓存管理（用户资料页底部） ---- */
+.cache-box { border: 1px solid var(--chrome-edge); border-radius: 6px; padding: 9px 10px;
+  background: linear-gradient(180deg, rgba(0,0,0,.16), rgba(0,0,0,.30)); }
+.cache-line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.cache-k { color: var(--txt-dim); flex: 0 0 auto; }
+.cache-v { color: var(--accent-hi, var(--accent-lo)); font-weight: 700; letter-spacing: .2px; }
+.cache-sub { margin-top: 5px; font-size: 11px; color: var(--txt-dim); }
+.cache-sub b { color: var(--txt); font-weight: 700; }
+.cache-bar { height: 6px; margin: 7px 0 0; border-radius: 3px; overflow: hidden;
+  background: rgba(0,0,0,.45); box-shadow: inset 0 1px 2px rgba(0,0,0,.6); }
+.cache-bar > i { display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi, #ffe08a));
+  transition: width .25s ease; }
+.cache-actions { margin-top: 9px; }
+.cache-actions select { flex: 0 0 auto; width: auto; min-width: 92px; }
 .lrc-find { display: flex; gap: 6px; align-items: center; }
 .lrc-find input { flex: 1 1 auto; min-width: 0; height: 34px; padding: 0 9px; border-radius: 5px;
   background: var(--lcd); border: 1px solid var(--chrome-edge); color: var(--txt);
@@ -1397,6 +1412,32 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
         </div>
       </div>
 
+      <!-- 缓存管理（放在用户资料页，一级面板不再加东西） -->
+      <div>
+        <label>缓存管理（听过的歌自动存在本机，再听不耗流量）</label>
+        <div class="cache-box">
+          <div class="cache-line">
+            <span class="cache-k">已缓存</span>
+            <span class="cache-v" id="cacheUsed">统计中…</span>
+          </div>
+          <div class="cache-bar"><i id="cacheBar" style="width:0%"></i></div>
+          <div class="cache-line cache-sub">
+            <span id="cacheHint"><span data-t1="最多占用">最多占用 </span><b id="cacheLimit">500 MB</b><span data-t2="，超了自动删最久没听的">，超了自动删最久没听的</span></span>
+          </div>
+          <div class="modal-row cache-actions">
+            <select id="cacheLimitSel" title="缓存上限：超出后自动删除最久没听的歌">
+              <option value="200">200 MB</option>
+              <option value="500">500 MB</option>
+              <option value="1024">1 GB</option>
+              <option value="2048">2 GB</option>
+              <option value="4096">4 GB</option>
+            </select>
+            <button id="btnCacheClear" title="清空所有已缓存音频，不影响歌单">清空缓存</button>
+          </div>
+          <div class="modal-tip">缓存只存音频文件本身，删除不会影响歌单、用户和设置。浏览器隐私模式下可能无法缓存。</div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -2131,11 +2172,15 @@ function watchCtxState(){
 })();
 
 /* SECTION: 播放音频缓存（下载直接复用，不再二次抓取，也不会下到接口返回的错误页） */
-/* 缓存策略：条数 + 总字节双限，LRU 淘汰（原实现是 FIFO，循环播放同一歌单时命中率几乎为 0） */
+/* 二级缓存：
+   ① 内存 LRU（audioCache）：条数 + 总字节双限，命中即用，零 IO；
+   ② IndexedDB 持久层（wm_audio_store）：键为「歌名|歌手|音质」，关掉 App 也不丢，
+      下次同一首直接本地取，不再问接口要链接、不再耗流量。
+   接口给的播放地址有时效，所以持久层绝不能用 URL 当键——那是原来方案最大的坑。 */
 const audioCache=new Map();          /* url -> Blob，插入顺序即 LRU 顺序（队首最旧） */
 const AUDIO_CACHE_MAX=8;             /* 最多 8 首 */
-const AUDIO_CACHE_BYTES=120*1024*1024;  /* 且总字节不超过 120MB（一首 SQ 无损可达 30MB，只按条数限会撑爆内存） */
-let audioCacheBytes=0;
+let AUDIO_CACHE_BYTES=120*1024*1024; /* 且总字节不超过 120MB（一首 SQ 无损可达 30MB，只按条数限会撑爆内存）；改用磁盘缓存后调小，内存只做热层 */
+let audioCacheBytes=0;               /* 当前内存热层已占字节，cachePut/cacheDrop 用它做上限判断 */
 const BLOB_HOLD_MAX=12;
 const blobHolders=[];
 function cacheBytes(){ return audioCacheBytes; }
@@ -2172,6 +2217,178 @@ function cachePut(url,b){
     if(oldest===undefined) break;
     cacheDrop(oldest);
   }
+}
+
+/* ================= 持久音频缓存（IndexedDB） ================= */
+const DISK_DB='winamper_media', DISK_STORE='audio', DISK_META='winamper_disk_cache_meta';
+const DISK_DEFAULT_MB=500, DISK_MIN_MB=100, DISK_MAX_MB=4096;
+let diskDb=null, diskOk=true, diskReady=null;   /* diskOk=false 表示浏览器不支持/隐私模式，退回纯内存缓存 */
+let diskBytes=0, diskCount=0;                   /* 由 meta 记录累加，避免每次开页统计几十万个字节 */
+const diskPending=new Set();                    /* 正在写入的键，避免同一首并发写两份 */
+
+/* 缓存键：歌名+歌手+音质。URL 带时效，绝不能进键里 */
+function diskKey(tr,quality){
+  if(!tr) return '';
+  const name=String(tr.name||'').trim(), art=String(tr.artist||tr.art||'').trim();
+  if(!name) return '';
+  return name+'|'+art+'|'+String(quality||'auto');
+}
+function diskLimitBytes(){
+  let mb=parseInt(localStorage.getItem('winamper_cache_mb')||'',10);
+  if(!(mb>=DISK_MIN_MB)) mb=DISK_DEFAULT_MB;
+  if(mb>DISK_MAX_MB) mb=DISK_MAX_MB;
+  return mb*1024*1024;
+}
+function diskOpen(){
+  if(diskReady) return diskReady;
+  diskReady=new Promise(function(res){
+    let req=null;
+    try{ req=indexedDB.open(DISK_DB,1); }catch(e){ diskOk=false; res(null); return; }
+    if(!req){ diskOk=false; res(null); return; }
+    req.onupgradeneeded=function(){
+      const db=req.result;
+      if(!db.objectStoreNames.contains(DISK_STORE)){
+        const os=db.createObjectStore(DISK_STORE,{keyPath:'k'});
+        os.createIndex('t','t');                     /* 按写入时间淘汰（近似 LRU，够用且实现简单） */
+      }
+    };
+    req.onsuccess=function(){ diskDb=req.result; diskOk=true;
+      diskDb.onversionchange=function(){ try{ diskDb.close(); }catch(e){} diskDb=null; diskReady=null; };
+      try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist(); }catch(e){}
+      res(diskDb); };
+    req.onerror=function(){ diskOk=false; res(null); };
+    req.onblocked=function(){ diskOk=false; res(null); };
+  });
+  return diskReady;
+}
+function diskTx(mode){ if(!diskDb) return null; try{ return diskDb.transaction([DISK_STORE],mode).objectStore(DISK_STORE); }catch(e){ return null; } }
+function diskLoadMeta(){
+  try{ const o=JSON.parse(localStorage.getItem(DISK_META)||'{}');
+       diskBytes=Math.max(0,o.bytes|0); diskCount=Math.max(0,o.count|0); }catch(e){ diskBytes=0; diskCount=0; }
+}
+function diskSaveMeta(){ try{ localStorage.setItem(DISK_META,JSON.stringify({bytes:diskBytes,count:diskCount})); }catch(e){} }
+function diskStat(){ return {bytes:diskBytes,count:diskCount,ok:diskOk,limit:diskLimitBytes()}; }
+/* 取当前语言下的文案：zh 原样，en/tw 让应用翻译层去处理 */
+function _L(s){
+  try{
+    if(typeof window.__wmTr==='function'){ const o=window.__wmTr(s); if(o) return o; }
+    const l=localStorage.getItem('winamper_lang')||'zh-CN';
+    if(l==='zh-TW'&&typeof window.__wmS2T==='function') return window.__wmS2T(s);
+  }catch(e){}
+  return s;
+}
+/* 异步读：先热层，再 IndexedDB。命中后回填热层 */
+async function diskGet(key,urlForHot){
+  if(!key) return null;
+  if(urlForHot){ const hot=cacheGet(urlForHot); if(hot) return hot; }
+  const db=await diskOpen(); if(!db) return null;
+  let tx;
+  try{ tx=db.transaction([DISK_STORE],'readonly'); }catch(e){ return null; }
+  const blob=await new Promise(function(res){
+    let req; try{ req=tx.objectStore(DISK_STORE).get(key); }catch(e){ res(null); return; }
+    req.onsuccess=function(){ const rec=req.result; res(rec&&rec.b?rec.b:null); };
+    req.onerror=function(){ res(null); };
+  });
+  if(!blob) return null;
+  if(urlForHot) cachePut(urlForHot,blob);
+  diskTouch(key);            /* 异步刷新「最后使用时间」，不拖慢本次取用 */
+  return blob;
+}
+/* 只改时间戳，不重写音频本体：单独开事务，失败也不影响播放 */
+function diskTouch(key){
+  if(!diskDb) return;
+  try{
+    const t=diskDb.transaction([DISK_STORE],'readwrite').objectStore(DISK_STORE);
+    const g=t.get(key);
+    g.onsuccess=function(){
+      const rec=g.result; if(!rec||!rec.b) return;
+      rec.t=Date.now();
+      try{ t.put(rec); }catch(e){}
+    };
+  }catch(e){}
+}
+/* 异步写：超上限就按时间从旧到新删，直到落进预算 */
+async function diskPut(key,blob){
+  if(!key||!blob||!diskOk||diskPending.has(key)) return false;
+  const size=blob.size||0; if(size<1024) return false;
+  const limit=diskLimitBytes();
+  if(size>limit) return false;                      /* 单首就超总预算，不落盘 */
+  diskPending.add(key);
+  try{
+    const db=await diskOpen(); if(!db) return false;
+    const os=diskTx('readonly');
+    const old=await new Promise(function(res){
+      let req; try{ req=os.get(key); }catch(e){ res(null); return; }
+      req.onsuccess=function(){ res(req.result||null); }; req.onerror=function(){ res(null); };
+    });
+    if(old&&old.b){ diskBytes-=old.b.size||0; diskCount--; }
+    /* 等事务 oncomplete：IndexedDB 的 put 在 onsuccess 时还没真正 commit，紧接着读会读不到 */
+    let ptx;
+    try{ ptx=db.transaction([DISK_STORE],'readwrite'); }catch(e){ return false; }
+    await new Promise(function(res){
+      try{ ptx.objectStore(DISK_STORE).put({k:key,b:blob,t:Date.now(),n:String(blob.type||'')}); }catch(e){ res(); return; }
+      ptx.oncomplete=function(){ res(); }; ptx.onerror=function(){ res(); }; ptx.onabort=function(){ res(); };
+    });
+    diskBytes+=size; diskCount++;
+    /* 超额淘汰：全部清掉也超（比如刚把上限调小）时直接清空 */
+    while((diskBytes>limit||diskCount>8000)&&diskCount>0){
+      const done=await diskEvictOldest();
+      if(!done) break;
+    }
+    diskSaveMeta();
+    return true;
+  }catch(e){ return false; }
+  finally{ diskPending.delete(key); }
+}
+async function diskEvictOldest(){
+  const db=await diskOpen(); if(!db) return false;
+  const r=diskTx('readonly'); if(!r) return false;
+  const first=await new Promise(function(res){
+    let req; try{ req=r.index('t').openCursor(); }catch(e){ res(null); return; }
+    req.onsuccess=function(){ res(req.result||null); }; req.onerror=function(){ res(null); };
+  });
+  if(!first) return false;
+  const key=first.value.k, sz=(first.value.b&&first.value.b.size)||0;
+  let dtx;
+  try{ dtx=db.transaction([DISK_STORE],'readwrite'); }catch(e){ return false; }
+  await new Promise(function(res){
+    try{ dtx.objectStore(DISK_STORE).delete(key); }catch(e){ res(); return; }
+    dtx.oncomplete=function(){ res(); }; dtx.onerror=function(){ res(); }; dtx.onabort=function(){ res(); };
+  });
+  diskBytes-=sz; diskCount--; if(diskBytes<0) diskBytes=0; if(diskCount<0) diskCount=0;
+  diskSaveMeta();
+  return true;
+}
+async function diskClear(){
+  const db=await diskOpen();
+  if(db){
+    /* 逐条删除（不用 clear()）：某些 WebView 上 clear() 后再开事务会卡住 */
+    const keys=await new Promise(function(res){
+      let tx; try{ tx=db.transaction([DISK_STORE],'readonly'); }catch(e){ res([]); return; }
+      let rq; try{ rq=tx.objectStore(DISK_STORE).getAllKeys(); }catch(e){ res([]); return; }
+      rq.onsuccess=function(){ res(rq.result||[]); }; rq.onerror=function(){ res([]); };
+    });
+    if(keys.length){
+      await new Promise(function(res){
+        let tx; try{ tx=db.transaction([DISK_STORE],'readwrite'); }catch(e){ res(); return; }
+        const os=tx.objectStore(DISK_STORE);
+        keys.forEach(function(k){ try{ os.delete(k); }catch(e){} });
+        tx.oncomplete=function(){ res(); }; tx.onerror=function(){ res(); }; tx.onabort=function(){ res(); };
+        setTimeout(res,1500);                    /* 兜底：万一事件不回，也不要把界面卡死 */
+      });
+    }
+  }
+  diskBytes=0; diskCount=0; diskSaveMeta();
+  audioCache.clear(); audioCacheBytes=0;
+  return true;
+}
+function fmtSize(n){
+  n=Math.max(0,n|0);
+  const trim=function(v){ return String(v).replace(/\.0+$/,'').replace(/(\.\d)0+$/,'$1'); };
+  if(n>=1024*1024*1024) return trim((n/1024/1024/1024).toFixed(2))+' GB';
+  if(n>=1024*1024) return trim((n/1024/1024).toFixed(1))+' MB';
+  if(n>=1024) return Math.round(n/1024)+' KB';
+  return n+' B';
 }
 function extForType(t){
   t=String(t||'').toLowerCase();
@@ -2771,6 +2988,7 @@ function primeBlob(url, tr){
     }
     if(b && blobTarget===url && !myCtl.signal.aborted){
       blobReady=b; cachePut(url,b);
+      diskPut(diskKey(tr, effQuality()), b);            /* 顺手落盘，下次同一首直接本地取 */
       if(tr){ tr.__blob=b; holdBlob(tr); }
       adoptBlob();
     }
@@ -2788,6 +3006,20 @@ function routeOnline(){
   if(!actx || !filters.length) return;
   if(!sourceO){ try{ sourceO=actx.createMediaElementSource(audioO); sourceO.connect(filters[0]); }catch(e){ sourceO=null; return; } }
   audioO.volume=1;
+}
+/* 缓存命中时直接出声：同源 blob 供 Web Audio 接频谱，零网络请求 */
+function startOnlineBlob(url, tr, blob){
+  opStage=3; opSrc=url; blobTarget=url; blobReady=blob;
+  try{
+    const bu=URL.createObjectURL(blob);
+    if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} }
+    lastBlob=bu;
+    audioO.removeAttribute('crossorigin');
+    audioO.src=bu;
+    setActive(audioO);
+    spFade=0;
+    if(!isMobile) routeOnline();
+  }catch(e){ startOnline(url, tr); }
 }
 function startOnline(url, tr){
   opStage=0; opSrc=url;
@@ -2821,6 +3053,19 @@ async function loadTrack(idx){
   if(tr.kind==='local'&&tr.file){ localObjUrl=URL.createObjectURL(tr.file); audio.src=localObjUrl; setActive(audio); }
   else{
     let url=tr.url||'';
+    /* ★ 先看本地缓存：命中就直接出声，不问接口要链接、不花一分流量 */
+    const dk=diskKey(tr, effQuality());
+    if(dk){
+      const disk=await diskGet(dk, tr.url||'');
+      if(disk&&looksLikeAudio(disk)){
+        if(state.track!==idx){ if(state.track>=0) return; }
+        tr.__blob=disk; holdBlob(tr);
+        startOnlineBlob(url, tr, disk);
+        setLrc(tr.lrc||null); followCurrentPage(); pushRecent(tr); updateDisplay(); renderPl();
+        play(); applyVolume(true); watchVolume(); if(!tr.lrc) autoMatchLrc(tr);
+        return;
+      }
+    }
     // 在线歌播放链接有时效，按所选音质重新获取新链接再播；取不到该码率则回退默认并提示
     if(tr.meta&&tr.meta.id){
       const r=await resolveOnlineUrl(tr); if(r.url){ url=r.url; }
@@ -3596,7 +3841,7 @@ async function downloadTrack(tr){
     toast('下载失败：接口没有返回音频（链接可能已失效或需 VIP）。先完整播放一次这首歌，播放器会缓存真实音频，再点下载即可','err');
     return;
   }
-  tr.__blob=b; cachePut(url,b);
+  tr.__blob=b; cachePut(url,b); diskPut(diskKey(tr, effQuality()), b);
   download(URL.createObjectURL(b), base+extForType(b.type));
   toast('已下载「'+base+'」（'+Math.round(b.size/1024)+' KB）','ok');
 }
@@ -3745,7 +3990,7 @@ $('btnLrc2').addEventListener('click',()=>$('fileLrc').click());
 $('fileLrc').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ if(state.track>=0){ currentPl().tracks[state.track].lrc=r.result; savePrefs(); } setLrc(r.result); toast('歌词已加载'); }; r.readAsText(f); e.target.value=''; });
 
 /* ================= 用户档案 ================= */
-$('btnUser').addEventListener('click',()=>{ renderProfileSel(); refreshRenameName(); $('userMask').classList.add('show'); updateFsUi(); });
+$('btnUser').addEventListener('click',()=>{ renderProfileSel(); refreshRenameName(); $('userMask').classList.add('show'); updateFsUi(); renderCacheUI(); refreshCacheUIAsync(); });
 $('btnCloseUser').addEventListener('click',()=>$('userMask').classList.remove('show'));
 $('userMask').addEventListener('click',e=>{ if(e.target===$('userMask')) $('userMask').classList.remove('show'); });
 
@@ -4048,9 +4293,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.3.43';
-const APP_CODE = 50;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.4.0';
+const APP_CODE = 51;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.4.0', code:51, date:'2026-11-04', notes:[
+    '新增「听过的歌自动缓存」：首次在线听完的歌存进本机（IndexedDB 持久化，关掉 App 也不丢），以后再听直接从本地取，不再花流量。',
+    '缓存键按「歌名+歌手+音质」记录，不再依赖接口给的有时效链接；同一首歌换接口、换链接都能命中。',
+    '用户档案页底部新增「缓存管理」：显示已缓存占用与条数，可设 200MB～4GB 上限（默认 500MB），可一键清空；超出上限自动删除最久没听的歌，不影响歌单和设置。'
+  ]},
   { v:'1.3.43', code:50, date:'2026-11-04', notes:[
     '修复竖屏顶栏布局：恢复「品牌行 / 用户行 / 按钮行」三排各自独占整行的原结构（简体、繁体、英文一致），保留窄屏下按钮行内部自动换行防溢出。'
   ]},
@@ -4339,6 +4589,67 @@ $('btnDeleteProfile').addEventListener('click',()=>{
   saveStore(); applyProfile(); renderProfileSel();
   toast('已删除用户：'+n);
 });
+
+/* ================= 缓存管理（用户资料页） ================= */
+function renderCacheUI(){
+  const used=$('cacheUsed'), bar=$('cacheBar'), lim=$('cacheLimit'), sel=$('cacheLimitSel');
+  if(!used) return;
+  const st=diskStat();
+  const limBytes=st.limit;
+  if(sel) sel.value=String(Math.round(limBytes/1024/1024));
+  if(lim) lim.textContent=fmtSize(limBytes);
+  if(!st.ok){
+    used.textContent='不可用';
+    if(bar) bar.style.width='0%';
+    used.title='浏览器不支持本地存储或被隐私模式限制';
+    return;
+  }
+  if(!st.count){ used.textContent=_L('暂无缓存'); }
+  else{ used.textContent=fmtSize(st.bytes)+' · '+st.count+' '+_L('首'); }
+  const pct=limBytes>0?Math.min(100,Math.round(st.bytes/limBytes*100)):0;
+  if(bar) bar.style.width=pct+'%';
+}
+async function refreshCacheUIAsync(){
+  /* 首次打开资料页时真实统计一次：meta 可能因异常退出而落后 */
+  try{
+    await diskOpen();
+    if(diskDb){
+      const os=diskTx('readonly');
+      if(os){
+        const all=await new Promise(function(res){
+          let req; try{ req=os.getAll(); }catch(e){ res(null); return; }
+          req.onsuccess=function(){ res(req.result||[]); }; req.onerror=function(){ res(null); };
+        });
+        if(all){
+          let b=0; for(const r of all) b+=(r&&r.b&&r.b.size)||0;
+          diskBytes=b; diskCount=all.length; diskSaveMeta();
+        }
+      }
+    }
+  }catch(e){}
+  renderCacheUI();
+}
+(function bindCacheUI(){
+  const clear=$('btnCacheClear'), sel=$('cacheLimitSel');
+  window.__wmAfterLang=function(){ try{ renderCacheUI(); }catch(e){} };
+  if(sel) sel.addEventListener('change',function(){
+    try{ localStorage.setItem('winamper_cache_mb',sel.value); }catch(e){}
+    renderCacheUI();
+    toast(_L('缓存上限已设为 ')+fmtSize(diskLimitBytes()));
+    /* 立刻把多余的清掉，别等到下次写入 */
+    (async function(){ while(diskStat().bytes>diskLimitBytes()){ if(!await diskEvictOldest()) break; } renderCacheUI(); })();
+  });
+  if(clear) clear.addEventListener('click',async function(){
+    const st=diskStat();
+    if(!st.count){ toast(_L('当前没有缓存'),'warn'); return; }
+    if(!confirm(_L('清空所有已缓存的音频（')+fmtSize(st.bytes)+' · '+st.count+' '+_L('首')+_L('）？\n歌单、用户和设置不受影响，只是下次听歌会重新走网络。'))) return;
+    clear.disabled=true;
+    const ok=await diskClear();
+    clear.disabled=false;
+    renderCacheUI();
+    toast(ok?_L('缓存已清空'):_L('清空失败，请稍后再试'), ok?'ok':'err');
+  });
+})();
 
 /* ================= 用户头像 + 下载播放器 ================= */
 function refreshUserUI(){
@@ -5392,7 +5703,21 @@ plists().forEach(pl=>{ pl.tracks=pl.tracks.filter(t=>t.kind!=='local'); });
 renderPlSwitch(); renderPl(); updateDisplay();
 if(currentPl().tracks.length){ state.track=0; const tr=currentPl().tracks[0]; if(tr.kind==='online'&&tr.url){ startOnline(tr.url, tr); } else if(tr.kind==='local'&&tr.file){ audio.src=URL.createObjectURL(tr.file); setActive(audio); } updateDisplay(); renderPl(); }
 if(!LS_OK){ warnLS(); }
+/* 启动即接上磁盘缓存：先读 meta 让用量立刻有数，再异步开库（开库失败自动降级为纯内存缓存） */
+diskLoadMeta();
+diskOpen().then(function(db){ if(db){ renderCacheUI(); } }).catch(function(){});
 setTimeout(autoCheckUpdate, 2500);        /* 静默检查更新：只在设置过清单地址时才会联网 */
+
+/* 调试/自动化测试入口：把内部函数挂出去，冒烟脚本才能验证缓存等内部行为。
+   只读挂载，不改变任何运行逻辑，普通用户不会感知。 */
+window.__wm={
+  $:$, diskKey:diskKey, diskPut:diskPut, diskGet:diskGet, diskClear:diskClear,
+  diskStat:diskStat, diskLimitBytes:diskLimitBytes, diskEvictOldest:diskEvictOldest,
+  renderCacheUI:renderCacheUI, loadTrack:loadTrack, cacheGet:cacheGet, cachePut:cachePut,
+  get state(){ return state; }, get store(){ return store; }, get audioO(){ return audioO; },
+  get opStage(){ return opStage; }, renderPl:renderPl,
+  get diskOk(){ return diskOk; }
+};
 })();
 
 </script>
@@ -5427,8 +5752,19 @@ setTimeout(autoCheckUpdate, 2500);        /* 静默检查更新：只在设置�
   "作者：Siwey（QQ：654876800）":"Author: Siwey (QQ: 654876800)",
   "当前 ":"Now v","已移除":"Removed",
   "不容易。移除后底部会出现「已移除「歌名」· 6 秒内可撤销」，点「撤销」整首原样回到原来的位置；如果删的正好是正在播放的那首，会自动停止播放，撤销后高亮也回到它身上（不会自己出声）。「清空」另有确认框，列出整单歌名，确认后同样 6 秒可撤销。":"Unlikely. After removal a bar shows \"Removed … · undo within 6s\"; \"Undo\" restores it in place. If it was playing, playback stops and the highlight returns after undo. \"Clear\" has its own confirmation and is also undoable for 6 seconds.",
-  "不用手动一个个试。播放器内置了接口候选池，搜索或取播放地址失败时会自动往下一个接口试，试到能用的就记住，下次打开直接用；点「自动换源搜索」可立刻逐个探测。要是全部失效，点右上「API源」，把新地址（一行一个，可一次贴多个）粘进去点「添加并探测」，可用的会自动加入并记住，「清空自定义」可恢复成内置那几个。面板里会列出每个接口是\"正在用/备用\"和\"可用/失效\"。":"You don't need to test manually. The built-in source pool auto-tries the next API on failure and remembers working ones. If all fail, open \"API Sources\" (top right), paste new URLs (one per line) and click \"Add & Probe\"; \"Clear Custom\" restores the built-ins. The panel shows each source as \"in use / standby\" and \"ok / dead\"."};
+  "不用手动一个个试。播放器内置了接口候选池，搜索或取播放地址失败时会自动往下一个接口试，试到能用的就记住，下次打开直接用；点「自动换源搜索」可立刻逐个探测。要是全部失效，点右上「API源」，把新地址（一行一个，可一次贴多个）粘进去点「添加并探测」，可用的会自动加入并记住，「清空自定义」可恢复成内置那几个。面板里会列出每个接口是\"正在用/备用\"和\"可用/失效\"。":"You don't need to test manually. The built-in source pool auto-tries the next API on failure and remembers working ones. If all fail, open \"API Sources\" (top right), paste new URLs (one per line) and click \"Add & Probe\"; \"Clear Custom\" restores the built-ins. The panel shows each source as \"in use / standby\" and \"ok / dead\".",
+  /* ---- v1.4.0 缓存管理 ---- */
+  "缓存管理（听过的歌自动存在本机，再听不耗流量）":"Cache (played songs are stored on this device — replays use no data)",
+  "已缓存":"Cached","统计中…":"Counting…","暂无缓存":"Nothing cached yet","不可用":"Unavailable",
+  "最多占用":"Up to","，超了自动删最久没听的":" least recently played removed when full",
+  "清空缓存":"Clear Cache","缓存上限：超出后自动删除最久没听的歌":"Cache limit — least recently played songs are removed when exceeded",
+  "缓存只存音频文件本身，删除不会影响歌单、用户和设置。浏览器隐私模式下可能无法缓存。":"Audio files only; clearing never touches playlists, users or settings. Caching may be unavailable in private browsing.",
+  "缓存上限已设为 ":"Cache limit set to ","缓存已清空":"Cache cleared","清空失败，请稍后再试":"Clear failed, please try again",
+  "当前没有缓存":"Nothing is cached yet","首歌":"tracks"};
+
   var LANG_KEY='winamper_lang';
+  /* 暴露给主逻辑：动态拼接的文案（缓存用量等）也能按当前语言渲染 */
+  window.__wmTr=tr; window.__wmS2T=convT; window.__wmLang=function(){ return lang; };
   var lang='zh-CN';
   try{ lang=localStorage.getItem(LANG_KEY)||'zh-CN'; }catch(e){}
   var origMap=new WeakMap(), attrOrig=new WeakMap();
@@ -5449,6 +5785,13 @@ setTimeout(autoCheckUpdate, 2500);        /* 静默检查更新：只在设置�
     var ms=core.match(/^第 (\d+) 页$/);
     if(ms) return 'Page '+ms[1];
     if(/^当前 v/.test(core)) return core.replace(/^当前 /,'Current ');
+    /* 缓存用量：「12.3 MB · 8 首」/「清空所有已缓存的音频（12.3 MB · 8 首）？…」 */
+    if(/\d+\s?(KB|MB|GB|B) · \d+ 首/.test(core)){
+      return core
+        .replace(/(\d[\d.]*)\s?(KB|MB|GB|B) · (\d+) 首/g,function(_,n,u,c){ return n+' '+u+' · '+c+' track'+(c==='1'?'':'s'); })
+        .replace(/已缓存的音频/g,'cached audio')
+        .replace(/歌单、用户和设置不受影响，只是下次听歌会重新走网络。/g,'Playlists, users and settings are untouched; the next play will use the network again.');
+    }
     /* API 源状态面板：动态组合文案按片段替换 */
     if(core.indexOf('｜')>=0 && core.indexOf('接口')>=0){
       return core
@@ -5511,6 +5854,7 @@ setTimeout(autoCheckUpdate, 2500);        /* 静默检查更新：只在设置�
         lang=sel.value;
         try{ localStorage.setItem(LANG_KEY,lang); }catch(e){}
         apply();
+        try{ if(typeof window.__wmAfterLang==='function') window.__wmAfterLang(); }catch(e){}   /* 让主逻辑重绘动态文案 */
       });
     }
     mo.observe(document.body,{childList:true,characterData:true,subtree:true,attributes:true,attributeFilter:['title','placeholder','aria-label']});
