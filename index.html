@@ -4335,9 +4335,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.5.3';
-const APP_CODE = 55;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.6.0';
+const APP_CODE = 56;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.6.0', code:56, date:'2026-11-05', notes:[
+    '新增「一键更新」：帮助弹窗里的「检查更新」现在直接联网查询最新版本（无需配置清单地址），发现新版点「立即更新」即可应用内下载并自动拉起安装器，覆盖安装保留全部数据。',
+    '新版本发布后会自动提醒（每 6 小时静默检查一次）。'
+  ]},
   { v:'1.5.3', code:55, date:'2026-11-05', notes:[
     '修复：首次播放「已缓存歌曲」时频谱（极光/星环等）不动的问题 —— 缓存直播路径漏了把音频接进频谱链路，现在与在线播放同一条链路。',
     '锁屏进度条优化：播放中每秒同步一次进度；锁屏进度条现在支持拖动定位，拖完立即跳转。'
@@ -4517,8 +4521,39 @@ let updInfo=null;
 function updFeedUrl(){
   try{ return (localStorage.getItem(UPD_KEY)||'').trim(); }catch(e){ return ''; }
 }
+function updUpdPlugin(){ const cap=window.Capacitor; return (cap&&cap.isNativePlatform&&cap.isNativePlatform()&&cap.Plugins&&cap.Plugins.UpdatePlugin)?cap.Plugins.UpdatePlugin:null; }
+
 async function fetchUpdateInfo(manual){
   const feed=updFeedUrl();
+  const up=updUpdPlugin();
+  /* APK 内：优先直接问 GitHub 最新 Release，无需用户配置清单 */
+  if(up){
+    try{
+      const r=await up.checkLatest();
+      const remote=String((r&&r.version)||'').trim();
+      if(remote&&verCmp(remote,APP_VER)>0){
+        try{ localStorage.setItem(UPD_LAST,String(Date.now())); }catch(e){}
+        const notes=[];
+        try{
+          String((r&&r.notes)||'').split(/\r?\n/).forEach(function(l){
+            l=l.replace(/^[-*]\s*/,'').replace(/^#+\s*/,'').trim();
+            if(l&&l.length>6&&l.length<200) notes.push(l);
+          });
+        }catch(e){}
+        updInfo={version:remote,code:0,url:String((r&&r.url)||''),notes:notes.slice(0,6)};
+        return updInfo;
+      }
+      updInfo=null;
+      if(manual) showUpdResult('已是最新版本 v'+APP_VER,'当前没有可用的更新。');
+      return null;
+    }catch(e){
+      /* GitHub 不通时回退到用户配置的清单地址；都没有再报错 */
+      if(!feed){
+        if(manual) showUpdResult('检查更新失败','无法连接更新服务器：'+((e&&e.message)||e)+'\n稍后再试，或继续用当前版本。');
+        return null;
+      }
+    }
+  }
   if(!feed){
     if(manual){
       const box=$('verUpdateBox'), msg=$('verUpdateMsg'), btn=$('btnDoUpdate');
@@ -4570,6 +4605,37 @@ function showUpdResult(title,detail){
 async function doUpdate(){
   if(!updInfo||!updInfo.url){ toast('没有可用的下载地址','warn'); return; }
   const url=updInfo.url;
+  const up=updUpdPlugin();
+  /* APK 内：应用内下载（带进度），完成后自动拉起系统安装器 */
+  if(up){
+    const msg=$('verUpdateMsg'), btn=$('btnDoUpdate');
+    btn.disabled=true; btn.textContent='下载中…';
+    let progCb=null, doneCb=null, errCb=null;
+    const setMsg=function(t){ if(msg) msg.innerHTML='<b style="color:var(--accent-hi)">正在更新到 v'+esc(updInfo.version||'')+'</b><br>'+t; };
+    try{
+      progCb=await up.addListener('progress',function(e){
+        const p=(e&&(e.percent!=null?e.percent:e.data&&e.data.percent))||0;
+        setMsg('已下载 '+p+'%'+(p<100?'（请保持网络畅通）':'，正在准备安装…'));
+      });
+      doneCb=await up.addListener('done',function(){
+        setMsg('下载完成，正在打开安装器…<br><span style="color:var(--txt-dim)">系统可能会询问「允许安装」，同意后点安装即可覆盖更新，数据全部保留。</span>');
+        btn.textContent='已打开安装器';
+        toast('下载完成，请在弹出的安装器里点「安装」','ok');
+      });
+      errCb=await up.addListener('error',function(e){
+        const m=(e&&(e.message!=null?e.message:e.data&&e.data.message))||'未知错误';
+        setMsg('更新失败：'+esc(String(m))+'<br>可稍后重试，或到 GitHub 下载。');
+        btn.disabled=false; btn.textContent='重试更新';
+      });
+      setMsg('已下载 0%');
+      await up.downloadAndInstall({url:url});
+    }catch(e){
+      setMsg('更新失败：'+esc(String((e&&e.message)||e)));
+      btn.disabled=false; btn.textContent='重试更新';
+    }
+    return;
+  }
+  /* 网页版：打开浏览器下载 */
   try{
     const cap=window.Capacitor;
     if(cap&&cap.isNativePlatform&&cap.isNativePlatform()&&cap.Plugins&&cap.Plugins.Browser){
@@ -4606,9 +4672,9 @@ function checkUpdateManual(){
   fetchUpdateInfo(true).then(info=>{ if(info) showUpdateBanner(info); });
 }
 
-/* 启动后自动静默检查一次（只在设置了清单地址、且距上次检查超过 6 小时时） */
+/* 启动后自动静默检查一次（APK 内直接问 GitHub；网页版需设置过清单地址；距上次检查超过 6 小时才联网） */
 function autoCheckUpdate(){
-  if(!updFeedUrl()) return;
+  if(!updUpdPlugin()&&!updFeedUrl()) return;
   let last=0;
   try{ last=+localStorage.getItem(UPD_LAST)||0; }catch(e){}
   if(Date.now()-last < 6*3600*1000) return;
