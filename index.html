@@ -4400,9 +4400,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.7.1';
-const APP_CODE = 62;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.7.2';
+const APP_CODE = 63;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.7.2', code:63, date:'2026-11-05', notes:[
+    '- 新增：手机/平板在帮助页点「检查更新」可直接复制 APK 下载直链（老浏览器打不开下载页时更省事）',
+    '- 发版流程自动化：上传到 GitHub 时统一使用纯英文文件名，直链更稳'
+  ]},
   { v:'1.7.1', code:62, date:'2026-11-05', notes:[
     '- 修复：语言在中↔英之间来回切换时，搜索框提示语等文案卡在英文不还原',
     '- 补齐「在线搜索」按钮英文提示'
@@ -5094,7 +5098,20 @@ if($('pgHelpBtn')) $('pgHelpBtn').addEventListener('click',function(){
   if(cu){
     var isEn=(typeof window.__wmLang==='function')&&window.__wmLang()==='en';
     cu.textContent=isEn?('Check Updates (now v'+APP_VER+')'):('检查更新（当前 v'+APP_VER+'）');
-    cu.onclick=function(){ $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual(); };
+    var mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+    if(mobile && navigator.clipboard && navigator.clipboard.writeText){
+      /* 手机/平板：直接给下载直链。老浏览器打不开 Release 页面时，粘到地址栏就能下。 */
+      cu.onclick=function(){
+        var url='https://github.com/asirshop/winamper-player/releases/download/v'+APP_VER+'/winamper-gold-v'+APP_VER+'.apk';
+        navigator.clipboard.writeText(url).then(function(){
+          toast('下载直链已复制，粘贴到浏览器地址栏即可下载','ok');
+        }).catch(function(){
+          $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual();
+        });
+      };
+    } else {
+      cu.onclick=function(){ $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual(); };
+    }
   }
 });
 /* 反馈链接：按当前界面语言生成对应的 Issue 模板（用户点开就已填好设备与版本） */
