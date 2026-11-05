@@ -4400,9 +4400,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.7.0';
-const APP_CODE = 61;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.7.1';
+const APP_CODE = 62;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.7.1', code:62, date:'2026-11-05', notes:[
+    '- 修复：语言在中↔英之间来回切换时，搜索框提示语等文案卡在英文不还原',
+    '- 补齐「在线搜索」按钮英文提示'
+  ]},
   { v:'1.7.0', code:61, date:'2026-11-05', notes:[
     '- 新增：蓝牙耳机/音箱断开自动暂停、重新连上继续播放（可在用户页开关）',
     '- 修复：锁屏进度条单位换算'
@@ -5999,6 +6003,7 @@ window.__wm={
   "音质":"Quality","支持在线与本地":"Online & local files",
   "移除":"Remove","播放":"Play","下载":"Download",
     "输入歌名 / 歌手，如：周杰伦 晴天":"Song or artist, e.g. Adele Hello",
+  "在线搜索并播放歌曲（点击展开/收起）":"Search and play songs online (tap to expand/collapse)",
   "一次粘贴多个接口地址，一行一个，然后点「添加并探测」；能用的会自动记住，下次开机直接用":"Paste multiple API URLs, one per line, then click \"Add & Probe\". Working ones are remembered for next launch.",
   "选择要匹配的歌词":"Pick Matching Lyrics","调整头像位置":"Adjust Avatar",
   "作者：Siwey（QQ：654876800）":"Author: Siwey (QQ: 654876800)",
@@ -6020,6 +6025,10 @@ window.__wm={
   var lang='zh-CN';
   try{ lang=localStorage.getItem(LANG_KEY)||'zh-CN'; }catch(e){}
   var origMap=new WeakMap(), attrOrig=new WeakMap();
+  /* 反向词典：英文译名 → 原始中文。英文模式下页面里存的是英文，
+     切回中文时要靠它把源文案找回来，否则「英文→中文」会没词可查。 */
+  var REV={};
+  Object.keys(EN).forEach(function(k){ if(!Object.prototype.hasOwnProperty.call(REV,EN[k])) REV[EN[k]]=k; });
   var CJK=/[\u4e00-\u9fff]/;
 
   function convT(s){ return s.replace(/[\u4e00-\u9fff]/g,function(c){ return S2T[c]||c; }); }
@@ -6059,22 +6068,40 @@ window.__wm={
     var o=origMap.get(n);
     if(o===undefined){
       o=n.nodeValue;
-      if(CJK.test(o)) origMap.set(n,o); else { origMap.set(n,null); return; }
+      if(CJK.test(o)) origMap.set(n,o);
+      else if(lang!=='zh-CN' && Object.prototype.hasOwnProperty.call(REV,o)) origMap.set(n,REV[o]); /* 英文状态下重新拿到源文案 */
+      else { origMap.set(n,null); return; }
     }
     if(o===null) return;
     var out=tr(o);
-    if(out!==null && out!==n.nodeValue) n.nodeValue=out;
+    /* 切回中文时 tr() 原样返回；英文时查不到词条会返回 null（保持原文）。
+       两种情况都要把节点写成「期望值」，否则 中→英→中 会卡在英文。 */
+    var want=(out===null)?o:out;
+    if(want!==n.nodeValue) n.nodeValue=want;
   }
   function txAttrs(el){
     if(el.nodeType!==1) return;
     var rec=attrOrig.get(el);
     ['title','placeholder','aria-label'].forEach(function(a){
+      if(rec&&rec[a]!==undefined){
+        /* 已记过原文：切换语言时无条件按原文重算，才能中文→英文→中文来回切都正确 */
+        var out2=tr(rec[a]);
+        var want=(out2===null)?rec[a]:out2;
+        if(want!==el.getAttribute(a)) el.setAttribute(a,want);
+        return;
+      }
       var v=el.getAttribute(a);
-      if(v===null||!CJK.test(v)) return;
+      if(v===null) return;
+      /* 没记过原文：含中文是标准源文案；英文模式下页面已是英文，用反向词典找回原文 */
+      var src=null;
+      if(CJK.test(v)) src=v;
+      else if(lang!=='zh-CN' && Object.prototype.hasOwnProperty.call(REV,v)) src=REV[v];
+      if(src===null) return;
       if(!rec){ rec={}; attrOrig.set(el,rec); }
-      if(rec[a]===undefined) rec[a]=v;
-      var out=tr(rec[a]);
-      if(out!==null && out!==v) el.setAttribute(a,out);
+      rec[a]=src;
+      var out=tr(src);
+      var want0=(out===null)?src:out;
+      if(want0!==v) el.setAttribute(a,want0);
     });
   }
   function walk(root){
