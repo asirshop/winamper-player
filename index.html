@@ -591,6 +591,8 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .nick-row .nick-ok, .nick-row .nick-cancel { width: 34px; min-width: 34px; padding: 0; font-size: 14px; }
 .nick-row .nick-cancel { color: #ff8a8a; }
 .modal-tip { font-size: 11px; color: var(--txt-dim); line-height: 1.6; }
+.bt-opt { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--txt); cursor: pointer; user-select: none; }
+.bt-opt input { width: auto; margin: 0; accent-color: var(--accent); }
 /* ---- 缓存管理（用户资料页底部） ---- */
 .cache-box { border: 1px solid var(--chrome-edge); border-radius: 6px; padding: 9px 10px;
   background: linear-gradient(180deg, rgba(0,0,0,.16), rgba(0,0,0,.30)); }
@@ -1439,6 +1441,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
           </div>
           <div class="modal-tip">缓存只存音频文件本身，删除不会影响歌单、用户和设置。浏览器隐私模式下可能无法缓存。</div>
         </div>
+      </div>
+
+      <!-- 蓝牙场景（v1.7.0，仅安卓 APK 生效，网页版隐藏） -->
+      <div id="btBox" style="display:none">
+        <label>蓝牙 / 耳机</label>
+        <div class="modal-row" style="gap:10px;flex-wrap:wrap">
+          <label class="bt-opt"><input type="checkbox" id="btPauseChk"><span data-t1="断开自动暂停">断开自动暂停</span></label>
+          <label class="bt-opt"><input type="checkbox" id="btResumeChk"><span data-t1="重新连上继续播放">重新连上继续播放</span></label>
+        </div>
+        <div class="modal-tip" data-t1="蓝牙耳机或音箱断开（摘下、走出范围、拔掉耳机线）时自动暂停，避免突然外放；重新连上自动接着放。手动按的暂停不会被强行续上。">蓝牙耳机或音箱断开时自动暂停，避免突然外放；重新连上自动接着放。手动按的暂停不会被强行续上。</div>
       </div>
 
     </div>
@@ -2952,6 +2964,50 @@ function nativeMusicSync(force){
   }catch(e){}
 }
 function stop(){ audio.pause(); audioO.pause(); audioB.pause(); audio.currentTime=0; audioO.currentTime=0; audioB.currentTime=0; state.playing=false; state.cur=0; setIcon(false); seekRender(); updateDisplay(); }
+
+/* ============ 蓝牙耳机/音箱场景（v1.7.0） ============
+   断开即暂停、重连续播。只判断「音频路线」，不碰设备内容。
+   规则：断开时只有在播才暂停，并记住当时进度；重新连上时，如果这首没换过、且是系统自动暂停的，
+   就自动续播（用户自己手动按的暂停不会被强行续上）。 */
+let __btPlugin=null, __btAutoPaused=false, __btSavedTrack=-1, __btSavedPos=0;
+const BT_KEY='winamper.btPauseResume';
+let btOpt={pause:true,resume:true};
+try{ const o=JSON.parse(localStorage.getItem(BT_KEY)||'{}'); if(o&&typeof o==='object') btOpt={pause:o.pause!==false,resume:o.resume!==false}; }catch(e){}
+function btSaveOpt(){ try{ localStorage.setItem(BT_KEY,JSON.stringify(btOpt)); }catch(e){} }
+function btReady(){
+  if(__btPlugin) return;
+  try{
+    if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()
+       &&Capacitor.Plugins&&Capacitor.Plugins.BluetoothPlugin){
+      __btPlugin=Capacitor.Plugins.BluetoothPlugin;
+      __btPlugin.addListener('bluetoothEvent',function(e){
+        const t=e&&(e.type||e.data&&e.data.type);
+        if(t==='disconnected') btOnLost();
+        else if(t==='connected') btOnBack(e&&(e.name||e.data&&e.data.name));
+      });
+    }
+  }catch(e){}
+}
+function btOnLost(){
+  if(!btOpt.pause) return;
+  if(!state.playing) return;
+  __btAutoPaused=true; __btSavedTrack=state.track;
+  try{ __btSavedPos=activeEl?activeEl.currentTime||0:state.cur||0; }catch(e){ __btSavedPos=state.cur||0; }
+  pause();
+  toast('音频设备已断开，已暂停','warn');
+}
+function btOnBack(name){
+  if(!__btAutoPaused) return;
+  __btAutoPaused=false;
+  if(!btOpt.resume) return;
+  if(state.track!==__btSavedTrack) return;         /* 断开后换歌了，不强行续播 */
+  if(state.playing) return;                        /* 已经在放（锁屏/手动恢复过），不重复 */
+  if(!activeEl||!activeEl.src) return;
+  try{ if(__btSavedPos>0.5) activeEl.currentTime=__btSavedPos; }catch(e){}
+  play();
+  toast(name?('已连接 '+name+'，继续播放'):'蓝牙已连接，继续播放','ok');
+}
+try{ btReady(); }catch(e){}
 /* ---- 网络歌曲：先原生出声(任何引擎) + 后台取同源blob到手即热切出频谱；桌面保留原CORS流式路径 ---- */
 const isMobile = /Android|iPhone|iPad|iPod|Windows Phone|Symbian|Mobile|SogouMobileBrowser|MQQBrowser|QQBrowser|MicroMessenger|HarmonyOS|MiuiBrowser/i.test(navigator.userAgent) || (('ontouchstart' in window) && window.innerWidth<900);
 let sourceO=null, sourceB=null, opStage=0, opSrc='';
@@ -4344,9 +4400,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.6.4';
-const APP_CODE = 60;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.7.0';
+const APP_CODE = 61;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.7.0', code:61, date:'2026-11-05', notes:[
+    '- 新增：蓝牙耳机/音箱断开自动暂停、重新连上继续播放（可在用户页开关）',
+    '- 修复：锁屏进度条单位换算'
+  ]},
   { v:'1.6.4', code:60, date:'2026-11-05', notes:[
     '- 修复锁屏/通知栏进度条不走的单位换算 bug（秒→毫秒）'
   ]},
@@ -4794,6 +4854,18 @@ async function refreshCacheUIAsync(){
     renderCacheUI();
     toast(ok?_L('缓存已清空'):_L('清空失败，请稍后再试'), ok?'ok':'err');
   });
+})();
+
+/* 蓝牙开关（v1.7.0）：仅原生端显示；网页版整块隐藏 */
+(function bindBtUI(){
+  const box=$('btBox'), pc=$('btPauseChk'), rc=$('btResumeChk');
+  if(!box||!pc||!rc) return;
+  const native=!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform());
+  if(!native) return;                  /* 网页版没有蓝牙路由判断，不显示，避免误导 */
+  box.style.display='';
+  pc.checked=btOpt.pause; rc.checked=btOpt.resume;
+  pc.addEventListener('change',function(){ btOpt.pause=pc.checked; btSaveOpt(); if(!btOpt.pause) __btAutoPaused=false; });
+  rc.addEventListener('change',function(){ btOpt.resume=rc.checked; btSaveOpt(); });
 })();
 
 /* ================= 用户头像 + 下载播放器 ================= */
