@@ -2937,7 +2937,8 @@ function nativeMusicSync(force){
   const pl=currentPl();
   const tr=(state.track>=0&&pl&&pl.tracks[state.track])?pl.tracks[state.track]:null;
   const title=tr?tr.name:'', artist=tr?String(tr.art||'').trim():'';
-  const pos=Math.round(state.cur||0), dur=Math.round(state.dur||0);
+  /* 单位换算：JS 内 state.cur/state.dur 为秒，原生 MediaSession 需要毫秒 */
+  const pos=Math.round((state.cur||0)*1000), dur=Math.round((state.dur||0)*1000);
   const metaKey=title+'|'+artist+'|'+state.playing;
   const now=Date.now();
   /* 元数据变了立刻同步；播放中进度 1 秒一推（锁屏进度条要能持续走）；暂停/停了只推一次 */
@@ -4343,9 +4344,12 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.6.3';
-const APP_CODE = 59;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.6.4';
+const APP_CODE = 60;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.6.4', code:60, date:'2026-11-05', notes:[
+    '- 修复锁屏/通知栏进度条不走的单位换算 bug（秒→毫秒）'
+  ]},
   { v:'1.6.3', code:59, date:'2026-11-05', notes:[
     'API源面板新增「启用社区源」一键按钮：接口清单托管在 GitHub 仓库，机器人定期巡检，死源自动标记、可用源优先——接口全挂时不用再自己找地址。',
     '搜索全部失败时的提示里也会引导一键启用社区源。'
