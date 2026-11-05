@@ -1,6 +1,6 @@
 {
   "desc": "WINAMPER 金玉版 · 社区接口源清单。由 GitHub Actions 机器人每 6 小时自动巡检：能用的标记 alive=true 并排在前面，失效的标记 alive=false，播放器拉取后会自动探测并优先使用可用源。欢迎通过 Issues 推荐新接口。",
-  "updatedAt": "2026-11-04",
+  "updatedAt": "2026-11-05",
   "sources": [
     {
       "name": "GDstudio",
@@ -11,7 +11,7 @@
     }
   ],
   "lastProbe": {
-    "at": "2026-11-04 23:35:22",
+    "at": "2026-11-05 01:19:34",
     "changed": 0,
     "alive": 1,
     "total": 1
