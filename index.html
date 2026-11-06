@@ -1518,7 +1518,9 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <label style="margin-top:12px">关于</label>
       <div class="modal-tip" style="font-size:11px;color:var(--txt-dim);">
         WINAMPER 金玉版 · 本地音乐播放器<br>
-        作者：Siwey（QQ：851709795）
+        作者：Siwey（QQ：851709795）<br>
+        <span data-t-lic>开源许可：AGPL-3.0（可自由使用、学习、修改；分发修改版须同样开源，禁止闭源套壳与改名商用）</span><br>
+        <a href="https://github.com/asirshop/winamper-player/blob/main/LICENSE" target="_blank" rel="noopener" style="color:var(--accent-hi)">查看完整许可证</a>
       </div>
       <label style="margin-top:12px">反馈与留言</label>
       <div class="fb-box">
@@ -1979,7 +1981,25 @@ const FX_PRESETS={
 function ensureCtx(){
   if(actx) return actx;
   const AC=window.AudioContext||window.webkitAudioContext;
-  actx=new AC();
+  /* latencyHint 用 playback 而不是默认的 interactive：
+     interactive 缓冲只有几毫秒，切后台/切窗口时渲染进程被降优先级，
+     来不及填充就 underrun，听感是「呲呲」爆音。
+     playback 的缓冲更大（几十毫秒），对听歌完全无感，但抗抖动强得多。 */
+  try{ actx=new AC({latencyHint:'playback'}); }catch(e){ actx=new AC(); }
+  /* 切回前台时：上下文可能被系统挂起，恢复后补一个极短的淡入，避免咔哒声 */
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden||!actx) return;
+    if(actx.state!=='running'){ try{ actx.resume().catch(function(){}); }catch(e){} }
+    if(state.playing&&gainNode){
+      /* 30ms 淡入：直接恢复满音量会有 pop，短淡入听不出来但能消掉爆点 */
+      try{
+        const t=actx.currentTime, v=clamp(state.vol==null?1:state.vol,0,1);
+        gainNode.gain.cancelScheduledValues(t);
+        gainNode.gain.setValueAtTime(0.0001,t);
+        gainNode.gain.exponentialRampToValueAtTime(Math.max(v,0.0001),t+0.03);
+      }catch(e){}
+    }
+  });
   source=actx.createMediaElementSource(audio);
   /* 前级增益：EQ 提升段落多时整体会变响甚至削波，前级先拉回余量 */
   preampNode=actx.createGain(); preampNode.gain.value=1;
@@ -4424,9 +4444,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.1';
-const APP_CODE = 65;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.2';
+const APP_CODE = 66;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.2', code:66, date:'2026-11-06', notes:[
+    '- 修复：切后台/切窗口时的「呲呲」爆音（音频缓冲改为 playback 模式，切回前台加短淡入）',
+    '- 许可证更新为 AGPL-3.0，帮助页增加许可说明与链接'
+  ]},
   { v:'1.8.1', code:65, date:'2026-11-06', notes:[
     '- 更新作者联系方式（QQ）'
   ]},
@@ -6056,6 +6080,8 @@ window.__wm={
   "一次粘贴多个接口地址，一行一个，然后点「添加并探测」；能用的会自动记住，下次开机直接用":"Paste multiple API URLs, one per line, then click \"Add & Probe\". Working ones are remembered for next launch.",
   "选择要匹配的歌词":"Pick Matching Lyrics","调整头像位置":"Adjust Avatar",
   "作者：Siwey（QQ：851709795）":"Author: Siwey (QQ: 851709795)",
+  "开源许可：AGPL-3.0（可自由使用、学习、修改；分发修改版须同样开源，禁止闭源套壳与改名商用）":"License: AGPL-3.0 — free to use, study and modify; redistributed forks must stay open source under the same license. Closed-source rebranding is not allowed.",
+  "查看完整许可证":"Read the full license",
   "当前 ":"Now v","已移除":"Removed",
   "不容易。移除后底部会出现「已移除「歌名」· 6 秒内可撤销」，点「撤销」整首原样回到原来的位置；如果删的正好是正在播放的那首，会自动停止播放，撤销后高亮也回到它身上（不会自己出声）。「清空」另有确认框，列出整单歌名，确认后同样 6 秒可撤销。":"Unlikely. After removal a bar shows \"Removed … · undo within 6s\"; \"Undo\" restores it in place. If it was playing, playback stops and the highlight returns after undo. \"Clear\" has its own confirmation and is also undoable for 6 seconds.",
   "不用手动一个个试。播放器内置了接口候选池，搜索或取播放地址失败时会自动往下一个接口试，试到能用的就记住，下次打开直接用；点「自动换源搜索」可立刻逐个探测。要是全部失效，点右上「API源」，把新地址（一行一个，可一次贴多个）粘进去点「添加并探测」，可用的会自动加入并记住，「清空自定义」可恢复成内置那几个。面板里会列出每个接口是\"正在用/备用\"和\"可用/失效\"。":"You don't need to test manually. The built-in source pool auto-tries the next API on failure and remembers working ones. If all fail, open \"API Sources\" (top right), paste new URLs (one per line) and click \"Add & Probe\"; \"Clear Custom\" restores the built-ins. The panel shows each source as \"in use / standby\" and \"ok / dead\".",
