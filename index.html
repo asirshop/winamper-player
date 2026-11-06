@@ -463,16 +463,23 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .row-menu { position: fixed; z-index: 9996; display: flex; align-items: center; gap: 5px; padding: 5px 6px;
   background: var(--chrome-lo); border: 1px solid var(--chrome-edge); border-radius: 5px;
   box-shadow: inset 0 1px 0 var(--bevel-hi), 0 10px 26px rgba(0,0,0,.55);
-  /* 关键：菜单宽度不能超过屏幕。否则歌名一长，整排按钮就比视口还宽，
-     定位时再怎么钳制也没用，靠右的「移除」会被切到屏幕外。 */
-  max-width: calc(100vw - 16px); flex-wrap: wrap; }
+  /* 关键：菜单宽度不能超过屏幕，且四个按钮必须始终排在同一排。
+     做法不是让按钮换行，而是把歌名压缩到 6 个字左右：
+     4 个按钮约 200px + 间距，剩下的空间正好够显示五六个字。 */
+  max-width: calc(100vw - 16px); flex-wrap: nowrap; }
 .row-menu .rm-name { font-family: Consolas, Menlo, monospace; font-size: 11px; color: var(--txt-dim);
   flex: 0 1 auto; min-width: 0;
-  max-width: min(150px, 34vw); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
+  max-width: min(6.5em, 22vw); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
 .row-menu button { font-family: inherit; font-size: 12px; color: var(--txt); background: var(--btn-bg);
   border: 1px solid var(--chrome-edge); border-radius: 4px; padding: 8px 12px; min-height: 38px; cursor: pointer;
   flex: 0 0 auto; white-space: nowrap; box-shadow: inset 0 1px 0 var(--bevel-hi); }
 .row-menu button:hover { filter: brightness(1.12); }
+/* 小屏（≤340px）：按钮收一点内边距，保证四个键和歌名仍能挤在一排 */
+@media (max-width: 340px){
+  .row-menu { gap: 4px; padding: 5px 5px; }
+  .row-menu button { padding: 8px 8px; }
+  .row-menu .rm-name { max-width: min(5.2em, 20vw); }
+}
 #toast .box.ok { color: var(--play-bright); border-color: var(--accent-edge); }
 .row-menu button.rm-del { color: #fff; background: linear-gradient(180deg,#c0392b,#8e2118); border-color: #5e1712; }
 
@@ -4574,9 +4581,12 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.10';
-const APP_CODE = 74;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.11';
+const APP_CODE = 75;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.11', code:75, date:'2026-11-06', notes:[
+    '- 长按菜单歌名只显示五六个字，四个按钮始终保持同一排且完整在屏幕内'
+  ]},
   { v:'1.8.10', code:74, date:'2026-11-06', notes:[
     '- 修复：歌名很长时长按菜单被挤出屏幕、「移除」键点不到',
     '- 菜单宽度限制在屏幕内（歌名自动压缩截断），极窄屏兜底再钳制一次'
