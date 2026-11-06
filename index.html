@@ -462,12 +462,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .menu-mask { position: fixed; inset: 0; z-index: 9995; background: transparent; }
 .row-menu { position: fixed; z-index: 9996; display: flex; align-items: center; gap: 5px; padding: 5px 6px;
   background: var(--chrome-lo); border: 1px solid var(--chrome-edge); border-radius: 5px;
-  box-shadow: inset 0 1px 0 var(--bevel-hi), 0 10px 26px rgba(0,0,0,.55); }
+  box-shadow: inset 0 1px 0 var(--bevel-hi), 0 10px 26px rgba(0,0,0,.55);
+  /* 关键：菜单宽度不能超过屏幕。否则歌名一长，整排按钮就比视口还宽，
+     定位时再怎么钳制也没用，靠右的「移除」会被切到屏幕外。 */
+  max-width: calc(100vw - 16px); flex-wrap: wrap; }
 .row-menu .rm-name { font-family: Consolas, Menlo, monospace; font-size: 11px; color: var(--txt-dim);
-  max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
+  flex: 0 1 auto; min-width: 0;
+  max-width: min(150px, 34vw); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 3px; }
 .row-menu button { font-family: inherit; font-size: 12px; color: var(--txt); background: var(--btn-bg);
   border: 1px solid var(--chrome-edge); border-radius: 4px; padding: 8px 12px; min-height: 38px; cursor: pointer;
-  white-space: nowrap; box-shadow: inset 0 1px 0 var(--bevel-hi); }
+  flex: 0 0 auto; white-space: nowrap; box-shadow: inset 0 1px 0 var(--bevel-hi); }
 .row-menu button:hover { filter: brightness(1.12); }
 #toast .box.ok { color: var(--play-bright); border-color: var(--accent-edge); }
 .row-menu button.rm-del { color: #fff; background: linear-gradient(180deg,#c0392b,#8e2118); border-color: #5e1712; }
@@ -3970,6 +3974,10 @@ function openRowMenu(row){
   let top=r.bottom+4; if(top+mr.height>window.innerHeight-8) top=Math.max(8, r.top-mr.height-4);
   let left=Math.min(Math.max(8, r.left+10), Math.max(8, window.innerWidth-mr.width-8));
   menu.style.top=Math.round(top)+'px'; menu.style.left=Math.round(left)+'px';
+  /* 兜底：极窄屏下按钮换行后位置可能仍越界，按实际渲染结果再压回可视区一次 */
+  const after=menu.getBoundingClientRect();
+  if(after.right>window.innerWidth-8) menu.style.left=Math.max(8, window.innerWidth-after.width-8)+'px';
+  if(after.bottom>window.innerHeight-8) menu.style.top=Math.max(8, window.innerHeight-after.height-8)+'px';
   const openedAt=Date.now(); menuHold=openedAt+450;   /* 只用来吞掉长按松手补发的点歌 click */
   const dismiss=function(ev){                      /* 遮罩上的点击：只要不是同一手势补发的，就关闭菜单 */
     if(Date.now()-openedAt<150) return;
@@ -4348,6 +4356,10 @@ function sleepMenu(items, sub){
   let top=r.top-mr.height-6; if(top<8) top=r.bottom+6;
   let left=Math.min(Math.max(8,r.left-20), Math.max(8, window.innerWidth-mr.width-8));
   menu.style.top=Math.round(top)+'px'; menu.style.left=Math.round(left)+'px';
+  /* 兜底：极窄屏下按钮换行后位置可能仍越界，按实际渲染结果再压回可视区一次 */
+  const after=menu.getBoundingClientRect();
+  if(after.right>window.innerWidth-8) menu.style.left=Math.max(8, window.innerWidth-after.width-8)+'px';
+  if(after.bottom>window.innerHeight-8) menu.style.top=Math.max(8, window.innerHeight-after.height-8)+'px';
   const dismiss=function(ev){ if(ev.target===mask) closeSleepMenu(); };
   mask.addEventListener('click',dismiss);
 }
@@ -4562,9 +4574,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.9';
-const APP_CODE = 73;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.10';
+const APP_CODE = 74;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.10', code:74, date:'2026-11-06', notes:[
+    '- 修复：歌名很长时长按菜单被挤出屏幕、「移除」键点不到',
+    '- 菜单宽度限制在屏幕内（歌名自动压缩截断），极窄屏兜底再钳制一次'
+  ]},
   { v:'1.8.9', code:73, date:'2026-11-06', notes:[
     '- 版本弹窗操作区置顶：「检查更新」「复制下载链接」移到更新记录上方，重开自动回顶部',
     '- 帮助页「检查更新」恢复原位（上一版误移）'
@@ -6196,6 +6212,7 @@ window.__wm={
   renderCacheUI:renderCacheUI, loadTrack:loadTrack, cacheGet:cacheGet, cachePut:cachePut,
   get state(){ return state; }, get store(){ return store; }, get audioO(){ return audioO; },
   get opStage(){ return opStage; }, renderPl:renderPl,
+  openRowMenu:openRowMenu, closeRowMenu:closeRowMenu,
   /* 仅供测试：缓存到手后的切换决策 */
   adoptDecision:adoptDecision, playbackStarved:playbackStarved,
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
