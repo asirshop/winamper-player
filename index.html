@@ -162,6 +162,30 @@ body { font-family: system-ui, -apple-system, "Roboto", "Noto Sans CJK SC", "Sou
 @media (min-width: 820px) { .main { grid-template-columns: 380px 1fr; gap: 0 10px; }
   .main > .left { border-right: 1px solid var(--chrome-edge); padding-right: 10px; }
   .main > .right { padding-left: 2px; } }
+
+/* ============ 折叠屏 / 大屏适配（v1.8.0） ============ */
+/* A 档：放宽限宽，展开后不再两侧大留白 */
+@media (min-width: 1200px) { .winamp { max-width: 1200px; } }
+@media (min-width: 1600px) { .winamp { max-width: 1500px; } }
+/* A 档：大屏左栏加宽、LCD 升高，频谱/均衡器更舒展 */
+@media (min-width: 1200px) { .display { height: 118px; } }
+@media (min-width: 1400px) {
+  .main { grid-template-columns: 440px 1fr; }
+  .display { height: 128px; } }
+
+/* B 档：近正方形（折叠屏展开态，宽高比 1:1 ~ 6:5 且够宽）→ 三栏布局：
+   左=播放台 | 中=歌词 | 右=歌单。用 display:contents 把 .left 的两个子块
+   提升为网格项，不改 DOM、不影响旧断点。 */
+@media (min-width: 1100px) and (max-aspect-ratio: 6/5) {
+  .main { grid-template-columns: minmax(380px, 10fr) minmax(260px, 8fr) minmax(300px, 9fr); gap: 0 14px; }
+  .main > .left { display: contents; }
+  .left > .ctl, .left > .lyrics { border-right: 1px solid var(--chrome-edge); padding-right: 14px; }
+  .left > .ctl { display: flex; flex-direction: column; gap: 12px; padding: 14px 14px 12px 0; }
+  .left > .lyrics { display: flex; flex-direction: column; min-height: 520px; }
+  .main > .right { padding-left: 2px; min-height: 520px; }
+  .display { height: 150px; }
+  .lyric { font-size: 15px; }
+  .lyric.cur { font-size: 19px; } }
 .panel { background: var(--panel-bg); border-top: 1px solid var(--bevel-hi); }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel-head);
   border-top: 1px solid var(--bevel-hi); border-bottom: 1px solid var(--chrome-edge); font-size: 11px; font-weight: 700;
@@ -4400,9 +4424,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.7.2';
-const APP_CODE = 63;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.0';
+const APP_CODE = 64;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.0', code:64, date:'2026-11-06', notes:[
+    '- 新增：折叠屏/大屏适配——展开态近正方形屏自动切三栏（播放台｜歌词｜歌单）',
+    '- 大屏限宽放宽至 1200/1500，左栏加宽、频谱区升高',
+    '- 手机端布局完全不变'
+  ]},
   { v:'1.7.2', code:63, date:'2026-11-05', notes:[
     '- 新增：手机/平板在帮助页点「检查更新」可直接复制 APK 下载直链（老浏览器打不开下载页时更省事）',
     '- 发版流程自动化：上传到 GitHub 时统一使用纯英文文件名，直链更稳'
