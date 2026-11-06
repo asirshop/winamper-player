@@ -709,6 +709,10 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   align-self:center; cursor:pointer; background:transparent; user-select:none; -webkit-user-select:none; }
 .ver-badge:hover{ background:var(--accent-soft); }
 .ver-badge:active{ filter:brightness(.9); }
+/* 版本弹窗：更新操作区固定在记录上方，记录再长也不用往下翻 */
+.ver-actions{ display:flex; gap:8px; flex-wrap:wrap; padding-bottom:9px;
+  border-bottom:1px solid rgba(255,255,255,.08); }
+#verUpdateBox{ padding-bottom:9px; border-bottom:1px solid rgba(255,255,255,.08); }
 .ver-list{ margin:8px 0 0; padding:0 0 0 18px; font-size:12px; line-height:1.85; color:var(--txt-dim); }
 .ver-list b{ color:var(--accent-hi); }
 .ver-tag{ display:inline-block; font:700 10px/1 Consolas,monospace; color:#0b0d12; background:var(--accent-hi);
@@ -1378,18 +1382,19 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <button id="btnCloseVer" aria-label="关闭"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
     </div>
     <div class="modal-body">
-      <div id="verBody"></div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+      <!-- 更新操作区置顶：更新记录越来越长，按钮压在最下面要滚很久才够得着 -->
+      <div class="ver-actions">
         <button id="btnCheckUpd" style="font-family:inherit;font-size:12px;padding:5px 10px">检查更新</button>
         <button id="btnCopyLink" style="font-family:inherit;font-size:12px;padding:5px 10px">复制下载链接</button>
       </div>
-      <div id="verUpdateBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+      <div id="verUpdateBox" style="display:none">
         <div id="verUpdateMsg" style="font-size:12px;line-height:1.7;color:var(--txt-dim)"></div>
         <div class="modal-row" style="margin-top:8px">
           <button id="btnDoUpdate" class="primary">立即更新</button>
           <button id="btnLaterUpdate">知道了</button>
         </div>
       </div>
+      <div id="verBody"></div>
     </div>
   </div>
 </div>
@@ -1499,14 +1504,6 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <button id="btnCloseHelp" aria-label="关闭"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
     </div>
     <div class="modal-body">
-      <!-- 更新入口置顶（v1.8.8）：帮助页正文很长，放底部要滚很久才能点到 -->
-      <label>检查更新</label>
-      <div class="fb-box" style="margin-bottom:12px">
-        <div class="fb-tip">检查有没有新版本；发现新版可一键下载安装，歌单和数据都会保留。</div>
-        <div class="fb-actions">
-          <button class="fb-btn primary" id="btnHelpCheckUpd" style="font-family:inherit">检查更新</button>
-        </div>
-      </div>
       <label>快速上手</label>
       <ol class="help-steps">
                 <li>点标题栏「用户」打开档案页，输入昵称即可「新建用户」，多人互不干扰。</li>
@@ -1546,6 +1543,13 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
           <a class="fb-btn primary" id="fbIssue" href="https://github.com/asirshop/winamper-player/issues/new" target="_blank" rel="noopener">提个问题 / 留言</a>
           <a class="fb-btn" id="fbList" href="https://github.com/asirshop/winamper-player/issues" target="_blank" rel="noopener">看看别人说了什么</a>
           <a class="fb-btn" id="fbHome" href="https://github.com/asirshop/winamper-player" target="_blank" rel="noopener">项目主页</a>
+        </div>
+      </div>
+      <label style="margin-top:12px">检查更新</label>
+      <div class="fb-box">
+        <div class="fb-tip">检查有没有新版本；发现新版可一键下载安装，歌单和数据都会保留。</div>
+        <div class="fb-actions">
+          <button class="fb-btn primary" id="btnHelpCheckUpd" style="font-family:inherit">检查更新</button>
         </div>
       </div>
     </div>
@@ -4558,9 +4562,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.8';
-const APP_CODE = 72;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.9';
+const APP_CODE = 73;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.9', code:73, date:'2026-11-06', notes:[
+    '- 版本弹窗操作区置顶：「检查更新」「复制下载链接」移到更新记录上方，重开自动回顶部',
+    '- 帮助页「检查更新」恢复原位（上一版误移）'
+  ]},
   { v:'1.8.8', code:72, date:'2026-11-06', notes:[
     '- 帮助页「检查更新」移到最顶部（原来在最底部，要滚很久）',
     '- 每次打开帮助页自动回到顶部'
@@ -4792,6 +4800,8 @@ function openVerDlg(){
   paintVersion();
   renderVerList();
   $('verMask').classList.add('show');
+  /* 每次打开都从顶部开始：操作按钮已置顶，不能因为上次看记录滚到底就又看不到 */
+  try{ var vm=$('verMask').querySelector('.modal'); if(vm) vm.scrollTop=0; }catch(e){}
 }
 $('verBadge').addEventListener('click',openVerDlg);
 $('btnCloseVer').addEventListener('click',()=>$('verMask').classList.remove('show'));
