@@ -2972,7 +2972,7 @@ function play(){
   if(activeEl===audio||activeEl===audioO){ ensureCtx(); if(actx&&actx.state==='suspended'){ try{ actx.resume().catch(function(){}); }catch(e){} } }
   activeEl.play().then(()=>{ state.playing=true; setIcon(true); updateDisplay(); }).catch(()=>toast('播放失败，可能是文件不可用','err'));
 }
-function pause(){ activeEl.pause(); state.playing=false; setIcon(false); updateDisplay(); }
+function pause(){ activeEl.pause(); state.playing=false; setIcon(false); updateDisplay(); cachePaint(); }
 function toggle(){ if(state.playing) pause(); else play(); }
 
 /* ================= 锁屏/通知栏媒体控制（仅安卓 APK 内生效） ================= */
@@ -3158,7 +3158,7 @@ async function fetchAudioStreamLazy(u, signal, onProg, isLive){
       try{ reader.cancel(); }catch(e){}
       throw new Error('aborted');
     }
-    if(isLive){                                  /* 只在「当前歌」上让路，预取下一首不让 */
+    if(state.playing){                           /* 只在真正出声时才让路；暂停/未播时全速下缓存 */
       if(playbackStarved()){
         /* 播放要断粮了：等它缓过来，最多等 3 秒，避免死锁 */
         let waited=0;
@@ -3181,6 +3181,15 @@ async function fetchAudioStreamLazy(u, signal, onProg, isLive){
   }
   return new Blob(chunks,{type:ctype||'audio/mpeg'});
 }
+/* 缓存进度：只在暂停时显示，让用户看得见「它还在下、快完了」 */
+let cacheGot=0, cacheTotal=0, cacheUrl='';
+function cachePaint(){
+  if(state.playing) return;                 /* 播放时 dStatus 归播放状态管 */
+  const d=$('dStatus'); if(!d) return;
+  if(!cacheUrl){ return; }
+  const mb=cacheGot>0?(' · '+(cacheGot/1048576).toFixed(1)+'MB'):'';
+  d.textContent = cacheTotal>0 ? ('缓存中 '+Math.min(99,Math.round(cacheGot*100/cacheTotal))+'%'+mb) : ('缓存中…'+mb);
+}
 /* 后台缓存下载：原址优先，失败依次试存活代理。
    原实现是 fetch 整体 5 秒超时 —— 无损一首 30~50MB，慢网下 5 秒连 HTTP 头都拿不全，
    于是永远走代理、永远失败，缓存形同虚设。现在改成「无进展」超时。 */
@@ -3189,6 +3198,7 @@ async function primeBlob(url, tr){
   cancelPrefetch();                              /* 切歌即取消上一首的所有在途请求 */
   const myCtl=new AbortController();
   prefetchCtl=myCtl; prefetchUrl=url;
+  cacheGot=0; cacheTotal=0; cacheUrl=url;
   let last=Date.now();
   const task=(async()=>{
     let b=null;
@@ -3197,7 +3207,7 @@ async function primeBlob(url, tr){
       if(b) break;
       if(blobTarget!==url || myCtl.signal.aborted) return null;   // 用户已切歌，放弃旧任务
       const isProxy=(u!==url);
-      last=Date.now();
+      last=Date.now(); cacheGot=0;
       /* 每次尝试用独立 ctl：单条线路超时只废掉它自己，还要接着试下一个地址。
          看门狗按「无进展」判：8 秒没有新字节才放弃这条线（持续有数据则永不打断）。 */
       const ctl=new AbortController();
@@ -3205,7 +3215,8 @@ async function primeBlob(url, tr){
       myCtl.signal.addEventListener('abort',onAbort,{once:true});
       const wd=setInterval(function(){ if(Date.now()-last>8000){ try{ ctl.abort(); }catch(e){} } },1500);
       try{
-        const bb=await fetchAudioStreamLazy(u, ctl.signal, function(){ last=Date.now(); },
+        const bb=await fetchAudioStreamLazy(u, ctl.signal,
+          function(got,total){ last=Date.now(); cacheGot=got; if(total) cacheTotal=total; cachePaint(); },
           function(){ return blobTarget!==url || myCtl.signal.aborted; });
         if(bb && bb.size>1024 && looksLikeAudio(bb)) b=bb;
         else if(isProxy){ for(const p of BLOB_PROXIES){ if(u.indexOf(p)===0){ markProxyDead(p); break; } } }
@@ -3224,6 +3235,7 @@ async function primeBlob(url, tr){
       if(tr){ tr.__blob=b; holdBlob(tr); }
       adoptBlob();
     }
+    if(cacheUrl===url){ cacheUrl=''; if(!state.playing){ const d=$('dStatus'); if(d) d.textContent='已暂停'; } }
     return b||null;
   })();
   if(tr){
@@ -4536,9 +4548,12 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.4';
-const APP_CODE = 68;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.5';
+const APP_CODE = 69;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.5', code:69, date:'2026-11-06', notes:[
+    '- 暂停时缓存全速下载（不再为播放让路），并显示缓存百分比'
+  ]},
   { v:'1.8.4', code:68, date:'2026-11-06', notes:[
     '- 修复：慢网下缓存和播放抢同一条带宽互相拖死（缓存下载改为给播放让路）',
     '- 修复：缓存到手热切换时位置往回退、听着像重了一段',
