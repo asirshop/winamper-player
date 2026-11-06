@@ -3044,6 +3044,9 @@ function stop(){ audio.pause(); audioO.pause(); audioB.pause(); audio.currentTim
    规则：断开时只有在播才暂停，并记住当时进度；重新连上时，如果这首没换过、且是系统自动暂停的，
    就自动续播（用户自己手动按的暂停不会被强行续上）。 */
 let __btPlugin=null, __btAutoPaused=false, __btSavedTrack=-1, __btSavedPos=0;
+/* v1.8.12：当前是否走「外接音频」（蓝牙耳机/音箱、有线耳机、USB 声卡）。
+   这个状态决定「缓存到手时要不要把声音切到本地 blob」——见 adoptDecision 的注释。 */
+let __btExternal=false;
 const BT_KEY='winamper.btPauseResume';
 let btOpt={pause:true,resume:true};
 try{ const o=JSON.parse(localStorage.getItem(BT_KEY)||'{}'); if(o&&typeof o==='object') btOpt={pause:o.pause!==false,resume:o.resume!==false}; }catch(e){}
@@ -3056,9 +3059,13 @@ function btReady(){
       __btPlugin=Capacitor.Plugins.BluetoothPlugin;
       __btPlugin.addListener('bluetoothEvent',function(e){
         const t=e&&(e.type||e.data&&e.data.type);
-        if(t==='disconnected') btOnLost();
-        else if(t==='connected') btOnBack(e&&(e.name||e.data&&e.data.name));
+        if(t==='disconnected'){ __btExternal=false; btOnLost(); }
+        else if(t==='connected'){ __btExternal=true; btOnBack(e&&(e.name||e.data&&e.data.name)); }
       });
+      /* 启动时问一次真实路由：App 冷启动时蓝牙往往早就连着，不会有 connected 事件 */
+      if(__btPlugin.getState){
+        try{ __btPlugin.getState().then(function(r){ __btExternal=!!(r&&r.external); }).catch(function(){}); }catch(e){}
+      }
     }
   }catch(e){}
 }
@@ -3113,19 +3120,37 @@ const BLOB_PROXIES=[
   'https://api.allorigins.win/get?url='
 ];
 /* 缓存到手后是否切到本地文件、切过去从哪一秒接上（纯函数，便于自动测试）
+
    原则：位置用 currentTime 原位接上，绝不往回退（回退等于重听一段，比断一下更明显）。
    只有一种情况不切：此刻正卡着没数据（readyState<3），说明流式这边本就供不上，
-   切过去要重新缓冲一次、更卡。这一轮让它流式播完，缓存已落盘，下次从头秒开。 */
-function adoptDecision(el, playing){
+   切过去要重新缓冲一次、更卡。这一轮让它流式播完，缓存已落盘，下次从头秒开。
+
+   v1.8.12 新增两条「不切」，专治「切歌后不是从开头播、而是从四五秒处开始」：
+   ① 外接音频（蓝牙耳机/音箱、有线耳机、USB）不切。
+      媒体元素换 src 会让系统重新协商音频通道，蓝牙要 1~3 秒才出声；
+      而这期间时间轴照走不误，等声音回来已经在第 4~5 秒了 —— 开头整段被吞掉。
+      外放/有线时换源只有几十毫秒，听不出来，所以这个毛病以前一直没暴露。
+   ② 播放位置还在开头（< minPos 秒）不切。
+      开头是用户最在意的一段，任何一次换源中断都会被听成「怎么没从头开始」。
+      过了开头再切，即便断一下也不影响「这首歌是从头放的」这个事实。
+   两种情况下 blob 都已写进磁盘缓存，下次同一首直接本地秒开，损失为零。 */
+/* 播放位置还在这段之内就不做热切（秒）。取 8 秒：正常一首歌前 8 秒属于「刚开头」，
+   用户只要没听到整段就会觉得「没从头放」；过了 8 秒再切，中断不会被误认成跳曲。 */
+const ADOPT_MIN_POS = 8;
+function adoptDecision(el, playing, opts){
   if(!el) return {ok:false, pos:0};
+  const o=opts||{};
   if(playing && (el.readyState||0)<3) return {ok:false, pos:0};
-  return {ok:true, pos:Math.max(0, el.currentTime||0)};
+  if(o.external) return {ok:false, pos:0};
+  const ct=Math.max(0, el.currentTime||0);
+  if(o.minPos>0 && ct<o.minPos) return {ok:false, pos:0};
+  return {ok:true, pos:ct};
 }
 function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱链路 */
   if(!blobReady || blobTarget!==opSrc || activeEl!==audioO) return;
   const b=blobReady; blobReady=null;
-  const d=adoptDecision(audioO, state.playing);
-  if(!d.ok) return;                    /* 正卡着：这轮不切，缓存已落盘供下次播 */
+  const d=adoptDecision(audioO, state.playing, {external:__btExternal, minPos:ADOPT_MIN_POS});
+  if(!d.ok){ holdBlobKeep(b); return; }   /* 这轮不切：blob 留着，下次同一首直接用 */
   const wasPlaying=state.playing;
   const tt=d.pos;
   state.cur=tt;
@@ -3137,6 +3162,13 @@ function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱
   audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); try{ audioO.currentTime=tt; }catch(e){} if(wasPlaying){ try{audioO.play();}catch(e){} } ensureOAttached(); },{once:true});
   audioO.src=lastBlob;
   specDead=0;
+}
+/* 不切时把 blob 挂回当前曲目，避免白下载一次（内存里留一份，够下一次 startOnlineBlob 用） */
+function holdBlobKeep(b){
+  try{ cachePut(opSrc, b); }catch(e){}
+  const pl=currentPl();
+  const tr=(pl&&state.track>=0)?pl.tracks[state.track]:null;
+  if(tr){ tr.__blob=b; try{ holdBlob(tr); }catch(e){} }
 }
 /* SECTION: blob 预取（并发 1、可取消、代理健康度）
    旧实现每切一首就开一个任务、每个任务串行试 1 个原址 + 5 个代理 × 9s 超时，
@@ -3286,7 +3318,9 @@ function startOnlineBlob(url, tr, blob){
     audioO.removeAttribute('crossorigin');
     /* 与 adoptBlob 同款挂接：先接频谱链路，loadedmetadata 后再接一次（部分机型首次会掉链） */
     ensureOAttached();
-    audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); ensureOAttached(); },{once:true});
+    /* v1.8.12：loadedmetadata 里显式把位置钉回 0 —— 部分 WebView 换 src 后 currentTime 会短暂
+       保留上一首的值，不归零就可能出现「点歌后从中间开始」。 */
+    audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); try{ audioO.currentTime=0; }catch(e){} ensureOAttached(); },{once:true});
     audioO.src=lastBlob;
     setActive(audioO);
     spFade=0; specDead=0;
@@ -3303,6 +3337,8 @@ function startOnline(url, tr){
     audioO.setAttribute('crossorigin','anonymous'); // PC：沿用原CORS流式秒播，blob仅作兜底
   }
   setActive(audioO);
+  /* v1.8.12：换源前先把位置钉回 0，杜绝「上一首的位置被带进新歌」 */
+  try{ audioO.currentTime=0; }catch(e){}
   audioO.src=url;
   spFade=0; applyVolume(true);                   // 音量从第一帧就按滑块生效，不再先最大声
   primeBlob(url, tr);
@@ -3312,6 +3348,7 @@ async function loadTrack(idx){
   if(!pl||!pl.tracks.length) return;
   idx=clamp(idx,0,pl.tracks.length-1);
   state.track=idx;
+  state.cur=0;                                 /* 换歌：进度归零，别让锁屏/进度条带着上一首的位置进新歌 */
   audEl=null; audPos=0;                        /* 换歌：可听进度从零开始，别拿上一首的基线 */
   const tr=pl.tracks[idx];
   cancelPrefetch();                            /* 切歌先掐掉上一首的在途预取，避免请求叠积 */
@@ -4581,9 +4618,15 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.11';
-const APP_CODE = 75;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.12';
+const APP_CODE = 76;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.12', code:76, date:'2026-11-06', notes:[
+    '- 修复：戴蓝牙耳机时，点歌/切歌后不是从开头放，而是从第 4~5 秒处开始',
+    '- 原因：缓存下完后把声音热切到本地文件，系统要重连蓝牙音频通道（1~3 秒），这期间时间轴照走，开头被吞',
+    '- 对策：外接音频（蓝牙/有线/USB）与歌曲开头 8 秒内不做热切换源；缓存照常写入，下次同一首仍能本地秒开',
+    '- 切歌时把播放位置显式归零，避免个别 WebView 把上一首的位置带进新歌'
+  ]},
   { v:'1.8.11', code:75, date:'2026-11-06', notes:[
     '- 长按菜单歌名只显示五六个字，四个按钮始终保持同一排且完整在屏幕内'
   ]},
@@ -6226,6 +6269,9 @@ window.__wm={
   /* 仅供测试：缓存到手后的切换决策 */
   adoptDecision:adoptDecision, playbackStarved:playbackStarved,
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
+  __setBtExternal:function(v){ __btExternal=!!v; },
+  get btExternal(){ return __btExternal; },
+  ADOPT_MIN_POS:ADOPT_MIN_POS,
   get diskOk(){ return diskOk; }
 };
 })();
