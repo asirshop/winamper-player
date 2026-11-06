@@ -1374,6 +1374,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <div id="verBody"></div>
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
         <button id="btnCheckUpd" style="font-family:inherit;font-size:12px;padding:5px 10px">检查更新</button>
+        <button id="btnCopyLink" style="font-family:inherit;font-size:12px;padding:5px 10px">复制下载链接</button>
       </div>
       <div id="verUpdateBox" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
         <div id="verUpdateMsg" style="font-size:12px;line-height:1.7;color:var(--txt-dim)"></div>
@@ -4548,9 +4549,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.5';
-const APP_CODE = 69;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.6';
+const APP_CODE = 70;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.6', code:70, date:'2026-11-06', notes:[
+    '- 修复：帮助页「检查更新」恢复为应用内一键更新（v1.7.2 误改成复制直链，导致只能跳浏览器）',
+    '- 版本弹窗新增「复制下载链接」作为备用入口'
+  ]},
   { v:'1.8.5', code:69, date:'2026-11-06', notes:[
     '- 暂停时缓存全速下载（不再为播放让路），并显示缓存百分比'
   ]},
@@ -5265,25 +5270,13 @@ function toggleFullscreen(){
 ['fullscreenchange','webkitfullscreenchange','mozfullscreenchange','MSFullscreenChange'].forEach(function(ev){ document.addEventListener(ev,syncFsBtn); });
 if($('pgHelpBtn')) $('pgHelpBtn').addEventListener('click',function(){
   $('helpMask').classList.add('show'); refreshFbLinks();
-  /* 检查更新按钮带上当前版本号，点了直接弹版本/更新对话框 */
+  /* 检查更新按钮带上当前版本号；点了就打开版本弹窗并自动检查，
+     APK 内会走应用内下载 + 系统安装器，不需要跳浏览器。 */
   var cu=$('btnHelpCheckUpd');
   if(cu){
     var isEn=(typeof window.__wmLang==='function')&&window.__wmLang()==='en';
     cu.textContent=isEn?('Check Updates (now v'+APP_VER+')'):('检查更新（当前 v'+APP_VER+'）');
-    var mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
-    if(mobile && navigator.clipboard && navigator.clipboard.writeText){
-      /* 手机/平板：直接给下载直链。老浏览器打不开 Release 页面时，粘到地址栏就能下。 */
-      cu.onclick=function(){
-        var url='https://github.com/asirshop/winamper-player/releases/download/v'+APP_VER+'/winamper-gold-v'+APP_VER+'.apk';
-        navigator.clipboard.writeText(url).then(function(){
-          toast('下载直链已复制，粘贴到浏览器地址栏即可下载','ok');
-        }).catch(function(){
-          $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual();
-        });
-      };
-    } else {
-      cu.onclick=function(){ $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual(); };
-    }
+    cu.onclick=function(){ $('helpMask').classList.remove('show'); openVerDlg(); checkUpdateManual(); };
   }
 });
 /* 反馈链接：按当前界面语言生成对应的 Issue 模板（用户点开就已填好设备与版本） */
@@ -5304,6 +5297,16 @@ function refreshFbLinks(){
 }
 if(document.getElementById('helpMask')) refreshFbLinks();
 if($('btnCheckUpd')) $('btnCheckUpd').addEventListener('click',function(){ checkUpdateManual(); });
+/* 复制下载链接：给老浏览器打不开下载页、或想手动传给别的设备时用 */
+if($('btnCopyLink')) $('btnCopyLink').addEventListener('click',function(){
+  var isEn=(typeof window.__wmLang==='function')&&window.__wmLang()==='en';
+  var v=(updInfo&&updInfo.version)?updInfo.version:APP_VER;
+  var url='https://github.com/asirshop/winamper-player/releases/download/v'+v+'/winamper-gold-v'+v+'.apk';
+  var ok=function(){ toast(isEn?'Download link copied':'下载链接已复制，粘贴到浏览器地址栏即可下载','ok'); };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(ok).catch(function(){ window.prompt('复制下面这条链接：',url); });
+  }else{ window.prompt('复制下面这条链接：',url); }
+});
 if($('btnCloseHelp')) $('btnCloseHelp').addEventListener('click',function(){ $('helpMask').classList.remove('show'); });
 (function(){ var hm=$('helpMask'); if(hm) hm.addEventListener('click',function(e){ if(e.target===hm) hm.classList.remove('show'); }); })();
 document.addEventListener('keydown',function(e){
