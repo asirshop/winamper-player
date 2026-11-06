@@ -3150,7 +3150,8 @@ function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱
   if(!blobReady || blobTarget!==opSrc || activeEl!==audioO) return;
   const b=blobReady; blobReady=null;
   const d=adoptDecision(audioO, state.playing, {external:__btExternal, minPos:ADOPT_MIN_POS});
-  if(!d.ok){ holdBlobKeep(b); return; }   /* 这轮不切：blob 留着，下次同一首直接用 */
+  /* 这轮不切：blob 在 primeBlob 里已经写进内存缓存和磁盘，下次同一首直接本地秒开，没有浪费 */
+  if(!d.ok) return;
   const wasPlaying=state.playing;
   const tt=d.pos;
   state.cur=tt;
@@ -3162,13 +3163,6 @@ function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱
   audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); try{ audioO.currentTime=tt; }catch(e){} if(wasPlaying){ try{audioO.play();}catch(e){} } ensureOAttached(); },{once:true});
   audioO.src=lastBlob;
   specDead=0;
-}
-/* 不切时把 blob 挂回当前曲目，避免白下载一次（内存里留一份，够下一次 startOnlineBlob 用） */
-function holdBlobKeep(b){
-  try{ cachePut(opSrc, b); }catch(e){}
-  const pl=currentPl();
-  const tr=(pl&&state.track>=0)?pl.tracks[state.track]:null;
-  if(tr){ tr.__blob=b; try{ holdBlob(tr); }catch(e){} }
 }
 /* SECTION: blob 预取（并发 1、可取消、代理健康度）
    旧实现每切一首就开一个任务、每个任务串行试 1 个原址 + 5 个代理 × 9s 超时，
