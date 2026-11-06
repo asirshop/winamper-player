@@ -621,6 +621,13 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .cache-box { border: 1px solid var(--chrome-edge); border-radius: 6px; padding: 9px 10px;
   background: linear-gradient(180deg, rgba(0,0,0,.16), rgba(0,0,0,.30)); }
 .cache-line { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+/* 卸载警示条：卸载/清除数据会连缓存一起没，且系统不给 App 任何"卸载前"机会，只能提前写在界面上 */
+.cache-warn { display: flex; gap: 6px; margin: -1px 0 9px; padding: 7px 8px; border-radius: 5px;
+  font-size: 11px; line-height: 1.55; color: var(--txt);
+  background: rgba(226, 168, 74, .10); border: 1px solid rgba(226, 168, 74, .34); }
+.cache-warn::before { content: "!"; flex: 0 0 14px; height: 14px; margin-top: 1px; border-radius: 50%;
+  font-size: 10px; font-weight: 700; line-height: 14px; text-align: center;
+  color: #221a08; background: #e2a84a; }
 .cache-k { color: var(--txt-dim); flex: 0 0 auto; }
 .cache-v { color: var(--accent-hi, var(--accent-lo)); font-weight: 700; letter-spacing: .2px; }
 .cache-sub { margin-top: 5px; font-size: 11px; color: var(--txt-dim); }
@@ -1444,6 +1451,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <div>
         <label>缓存管理（听过的歌自动存在本机，再听不耗流量）</label>
         <div class="cache-box">
+          <div class="cache-warn" id="cacheWarn" style="display:none">升级请直接覆盖安装，不要先卸载。卸载或清除数据会连同这些缓存的歌曲一起删掉，重装后要重新下载。</div>
           <div class="cache-line">
             <span class="cache-k">已缓存</span>
             <span class="cache-v" id="cacheUsed">统计中…</span>
@@ -4549,9 +4557,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.6';
-const APP_CODE = 70;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.7';
+const APP_CODE = 71;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.7', code:71, date:'2026-11-06', notes:[
+    '- 新增：缓存管理顶部提示——升级请直接覆盖安装，卸载或清除数据会连缓存歌曲一起删掉',
+    '- 固定 APK 签名，确保任何版本都能覆盖安装（覆盖安装不删数据目录，已缓存歌曲自动保留）'
+  ]},
   { v:'1.8.6', code:70, date:'2026-11-06', notes:[
     '- 修复：帮助页「检查更新」恢复为应用内一键更新（v1.7.2 误改成复制直链，导致只能跳浏览器）',
     '- 版本弹窗新增「复制下载链接」作为备用入口'
@@ -4992,10 +5004,13 @@ function renderCacheUI(){
     used.textContent='不可用';
     if(bar) bar.style.width='0%';
     used.title='浏览器不支持本地存储或被隐私模式限制';
+    const w0=$('cacheWarn'); if(w0) w0.style.display='none';
     return;
   }
   if(!st.count){ used.textContent=_L('暂无缓存'); }
   else{ used.textContent=fmtSize(st.bytes)+' · '+st.count+' '+_L('首'); }
+  /* 没缓存就不必提醒卸载风险，留着只是噪音 */
+  const cw=$('cacheWarn'); if(cw) cw.style.display=(st.count>0)?'':'none';
   const pct=limBytes>0?Math.min(100,Math.round(st.bytes/limBytes*100)):0;
   if(bar) bar.style.width=pct+'%';
 }
@@ -6213,6 +6228,7 @@ window.__wm={
   "最多占用":"Up to","，超了自动删最久没听的":" least recently played removed when full",
   "清空缓存":"Clear Cache","缓存上限：超出后自动删除最久没听的歌":"Cache limit — least recently played songs are removed when exceeded",
   "缓存只存音频文件本身，删除不会影响歌单、用户和设置。浏览器隐私模式下可能无法缓存。":"Audio files only; clearing never touches playlists, users or settings. Caching may be unavailable in private browsing.",
+  "升级请直接覆盖安装，不要先卸载。卸载或清除数据会连同这些缓存的歌曲一起删掉，重装后要重新下载。":"To upgrade, install over the current version - do not uninstall first. Uninstalling or clearing app data deletes all cached songs, and they will have to be downloaded again.",
   "缓存上限已设为 ":"Cache limit set to ","缓存已清空":"Cache cleared","清空失败，请稍后再试":"Clear failed, please try again",
   "当前没有缓存":"Nothing is cached yet","首歌":"tracks"};
 
