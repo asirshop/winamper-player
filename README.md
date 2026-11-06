@@ -74,7 +74,19 @@ Please respect the copyright laws of your country when using online search.
 
 ## License
 
-The player code is released under the MIT License. Music, lyrics and cover art retrieved from third-party sources remain the property of their respective owners.
+The player code is released under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+In plain words:
+
+- ✅ **Use it, study it, modify it** — for yourself, your family, your own devices, freely.
+- ✅ **Share it** — you may redistribute it, but modified versions must also be released under AGPL-3.0 with source available.
+- ✅ **Run it as a service** — if you let others use your modified version over a network, you must offer them the source.
+- ❌ **Closed-source rebranding is not allowed** — you may not take this code, change the name/icon and ship a closed-source product.
+- ❌ **Commercial resale as a closed product is not allowed.**
+
+The name **WINAMPER / 金玉版 / Siwey** and the app icon are not covered by the code license; please do not use them for derivative builds.
+
+Music, lyrics and cover art retrieved from third-party sources remain the property of their respective owners.
 
 ---
 
