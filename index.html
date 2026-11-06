@@ -1499,6 +1499,14 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
       <button id="btnCloseHelp" aria-label="关闭"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
     </div>
     <div class="modal-body">
+      <!-- 更新入口置顶（v1.8.8）：帮助页正文很长，放底部要滚很久才能点到 -->
+      <label>检查更新</label>
+      <div class="fb-box" style="margin-bottom:12px">
+        <div class="fb-tip">检查有没有新版本；发现新版可一键下载安装，歌单和数据都会保留。</div>
+        <div class="fb-actions">
+          <button class="fb-btn primary" id="btnHelpCheckUpd" style="font-family:inherit">检查更新</button>
+        </div>
+      </div>
       <label>快速上手</label>
       <ol class="help-steps">
                 <li>点标题栏「用户」打开档案页，输入昵称即可「新建用户」，多人互不干扰。</li>
@@ -1538,13 +1546,6 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
           <a class="fb-btn primary" id="fbIssue" href="https://github.com/asirshop/winamper-player/issues/new" target="_blank" rel="noopener">提个问题 / 留言</a>
           <a class="fb-btn" id="fbList" href="https://github.com/asirshop/winamper-player/issues" target="_blank" rel="noopener">看看别人说了什么</a>
           <a class="fb-btn" id="fbHome" href="https://github.com/asirshop/winamper-player" target="_blank" rel="noopener">项目主页</a>
-        </div>
-      </div>
-      <label style="margin-top:12px">检查更新</label>
-      <div class="fb-box">
-        <div class="fb-tip">检查有没有新版本；发现新版可一键下载安装，歌单和数据都会保留。</div>
-        <div class="fb-actions">
-          <button class="fb-btn primary" id="btnHelpCheckUpd" style="font-family:inherit">检查更新</button>
         </div>
       </div>
     </div>
@@ -4557,9 +4558,13 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.7';
-const APP_CODE = 71;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.8';
+const APP_CODE = 72;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.8', code:72, date:'2026-11-06', notes:[
+    '- 帮助页「检查更新」移到最顶部（原来在最底部，要滚很久）',
+    '- 每次打开帮助页自动回到顶部'
+  ]},
   { v:'1.8.7', code:71, date:'2026-11-06', notes:[
     '- 新增：缓存管理顶部提示——升级请直接覆盖安装，卸载或清除数据会连缓存歌曲一起删掉',
     '- 固定 APK 签名，确保任何版本都能覆盖安装（覆盖安装不删数据目录，已缓存歌曲自动保留）'
@@ -5284,7 +5289,9 @@ function toggleFullscreen(){
 }
 ['fullscreenchange','webkitfullscreenchange','mozfullscreenchange','MSFullscreenChange'].forEach(function(ev){ document.addEventListener(ev,syncFsBtn); });
 if($('pgHelpBtn')) $('pgHelpBtn').addEventListener('click',function(){
-  $('helpMask').classList.add('show'); refreshFbLinks();
+  var hm=$('helpMask'); hm.classList.add('show'); refreshFbLinks();
+  /* 每次打开都回到顶部：更新按钮在最上面，不能因为上次滚到底部就又得找一遍 */
+  try{ var hb=hm.querySelector('.modal'); if(hb) hb.scrollTop=0; }catch(e){}
   /* 检查更新按钮带上当前版本号；点了就打开版本弹窗并自动检查，
      APK 内会走应用内下载 + 系统安装器，不需要跳浏览器。 */
   var cu=$('btnHelpCheckUpd');
