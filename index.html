@@ -3087,19 +3087,22 @@ const BLOB_PROXIES=[
   'https://api.cors.lol/?url=',
   'https://api.allorigins.win/get?url='
 ];
-function resumePosFor(el){
-  /* 续播位置用「可听进度」而不是 currentTime：
-     慢网络下 currentTime 可能跑到声音还没到的地方，直接用会跳掉开头。
-     差距小于 1.5s 时按 currentTime 走，避免每次切都回退一点点（听感像卡一下）。 */
-  let tt=(el&&el.currentTime)||0;
-  if(el&&audEl===el&&audPos>=0&&tt-audPos>1.5) tt=audPos;
-  return Math.max(0,tt);
+/* 缓存到手后是否切到本地文件、切过去从哪一秒接上（纯函数，便于自动测试）
+   原则：位置用 currentTime 原位接上，绝不往回退（回退等于重听一段，比断一下更明显）。
+   只有一种情况不切：此刻正卡着没数据（readyState<3），说明流式这边本就供不上，
+   切过去要重新缓冲一次、更卡。这一轮让它流式播完，缓存已落盘，下次从头秒开。 */
+function adoptDecision(el, playing){
+  if(!el) return {ok:false, pos:0};
+  if(playing && (el.readyState||0)<3) return {ok:false, pos:0};
+  return {ok:true, pos:Math.max(0, el.currentTime||0)};
 }
-function adoptBlob(){  /* 同源blob就绪：无缝切过去并把 audioO 接入频谱链路 */
+function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱链路 */
   if(!blobReady || blobTarget!==opSrc || activeEl!==audioO) return;
   const b=blobReady; blobReady=null;
+  const d=adoptDecision(audioO, state.playing);
+  if(!d.ok) return;                    /* 正卡着：这轮不切，缓存已落盘供下次播 */
   const wasPlaying=state.playing;
-  const tt=resumePosFor(audioO);
+  const tt=d.pos;
   state.cur=tt;
   if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} }
   lastBlob=URL.createObjectURL(b);
@@ -3121,15 +3124,72 @@ function aliveProxies(){
   return BLOB_PROXIES.filter(function(p){ const t=proxyDeadAt.get(p); return !t||now-t>PROXY_COOLDOWN; });
 }
 function markProxyDead(p){ proxyDeadAt.set(p,Date.now()); }
+/* ---- 后台缓存下载的「礼让」机制（v1.8.4）----
+   病根：同一首歌被下了两次 —— 媒体元素边下边播一次，缓存 fetch 又一次，
+   两条流抢同一条带宽。慢网时互相拖死：声音卡、缓存也要 20 秒以上（无损尤其明显）。
+   做法：缓存下载每读一块之前先看播放器是否快没数据了；是就让一让，
+   保证「听」优先、「存」其次。播放正常时全速下载，不影响缓存最终完成。 */
+function sleepMs(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+function playbackStarved(){
+  /* readyState<3 表示后面的数据接不上了，此刻它在等网络 */
+  try{ return !!(state.playing && activeEl && activeEl.readyState<3); }catch(e){ return false; }
+}
 function cancelPrefetch(){
   if(prefetchCtl){ try{ prefetchCtl.abort(); }catch(e){} prefetchCtl=null; }
   prefetchUrl='';
 }
-function primeBlob(url, tr){
+/* 流式读取响应体：边下边回报进度，并在每块之间给播放让路。
+   礼让规则：
+   - 播放器饿缓冲（readyState<3）→ 完全停手，等缓过来
+   - 剩余缓冲不足 4 秒 → 每块之间歇 250ms，给媒体元素让出带宽
+   - 缓冲充足 → 全速下载，不拖慢缓存
+   注意：老 WebView 没有 body.getReader 时只能一口气读完，礼让不生效（退化为原行为）。 */
+async function fetchAudioStreamLazy(u, signal, onProg, isLive){
+  const r=await fetch(u,{mode:'cors',signal:signal});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const ctype=r.headers.get('content-type')||'';
+  const total=Number(r.headers.get('content-length')||0)||0;
+  if(!(r.body && typeof r.body.getReader==='function')){
+    const b=await r.blob(); onProg(b.size, b.size||total); return b;
+  }
+  const reader=r.body.getReader(); const chunks=[]; let got=0;
+  for(;;){
+    if(isLive && isLive()){                     /* 用户已切歌：立刻停手 */
+      try{ reader.cancel(); }catch(e){}
+      throw new Error('aborted');
+    }
+    if(isLive){                                  /* 只在「当前歌」上让路，预取下一首不让 */
+      if(playbackStarved()){
+        /* 播放要断粮了：等它缓过来，最多等 3 秒，避免死锁 */
+        let waited=0;
+        while(playbackStarved() && waited<3000 && !signal.aborted){ await sleepMs(150); waited+=150; }
+      }else{
+        const el=activeEl;
+        if(el && el.buffered && el.buffered.length && typeof el.buffered.end==='function'){
+          const left=el.buffered.end(el.buffered.length-1)-(el.currentTime||0);
+          /* 余量越少让得越多。闸门开得很小是有意的：稍微一卡就全速，
+             否则慢网下每块都歇 200ms，缓存永远下不完。 */
+          if(left<2) await sleepMs(200);
+          else if(left<4) await sleepMs(60);
+        }
+      }
+    }
+    const s=await reader.read();
+    if(s.done) break;
+    chunks.push(s.value); got+=s.value.length;
+    onProg(got, total);
+  }
+  return new Blob(chunks,{type:ctype||'audio/mpeg'});
+}
+/* 后台缓存下载：原址优先，失败依次试存活代理。
+   原实现是 fetch 整体 5 秒超时 —— 无损一首 30~50MB，慢网下 5 秒连 HTTP 头都拿不全，
+   于是永远走代理、永远失败，缓存形同虚设。现在改成「无进展」超时。 */
+async function primeBlob(url, tr){
   blobReady=null; blobTarget=url; specDead=0;
   cancelPrefetch();                              /* 切歌即取消上一首的所有在途请求 */
   const myCtl=new AbortController();
   prefetchCtl=myCtl; prefetchUrl=url;
+  let last=Date.now();
   const task=(async()=>{
     let b=null;
     const tries=[url, ...aliveProxies().map(function(p){ return p+encodeURIComponent(url); })];
@@ -3137,17 +3197,26 @@ function primeBlob(url, tr){
       if(b) break;
       if(blobTarget!==url || myCtl.signal.aborted) return null;   // 用户已切歌，放弃旧任务
       const isProxy=(u!==url);
+      last=Date.now();
+      /* 每次尝试用独立 ctl：单条线路超时只废掉它自己，还要接着试下一个地址。
+         看门狗按「无进展」判：8 秒没有新字节才放弃这条线（持续有数据则永不打断）。 */
+      const ctl=new AbortController();
+      const onAbort=function(){ try{ ctl.abort(); }catch(e){} };
+      myCtl.signal.addEventListener('abort',onAbort,{once:true});
+      const wd=setInterval(function(){ if(Date.now()-last>8000){ try{ ctl.abort(); }catch(e){} } },1500);
       try{
-        const ctl=new AbortController();
-        const onAbort=function(){ try{ ctl.abort(); }catch(e){} };
-        myCtl.signal.addEventListener('abort',onAbort,{once:true});
-        const to=setTimeout(function(){ try{ ctl.abort(); }catch(e){} },5000);
-        let r;
-        try{ r=await fetch(u,{mode:'cors',signal:ctl.signal}); }
-        finally{ clearTimeout(to); myCtl.signal.removeEventListener('abort',onAbort); }
-        if(r && r.ok){ const bb=await r.blob(); if(bb && bb.size>1024 && looksLikeAudio(bb)) b=bb; }
-        if(isProxy && !b){ for(const p of BLOB_PROXIES){ if(u.indexOf(p)===0){ markProxyDead(p); break; } } }
-      }catch(e){ if(isProxy){ for(const p of BLOB_PROXIES){ if(u.indexOf(p)===0){ markProxyDead(p); break; } } } }
+        const bb=await fetchAudioStreamLazy(u, ctl.signal, function(){ last=Date.now(); },
+          function(){ return blobTarget!==url || myCtl.signal.aborted; });
+        if(bb && bb.size>1024 && looksLikeAudio(bb)) b=bb;
+        else if(isProxy){ for(const p of BLOB_PROXIES){ if(u.indexOf(p)===0){ markProxyDead(p); break; } } }
+      }catch(e){
+        /* 切歌导致的主动取消不算代理失效，别把它拉黑 */
+        const self=myCtl.signal.aborted || blobTarget!==url;
+        if(!self && isProxy){ for(const p of BLOB_PROXIES){ if(u.indexOf(p)===0){ markProxyDead(p); break; } } }
+      }finally{
+        clearInterval(wd);
+        myCtl.signal.removeEventListener('abort',onAbort);
+      }
     }
     if(b && blobTarget===url && !myCtl.signal.aborted){
       blobReady=b; cachePut(url,b);
@@ -3186,22 +3255,20 @@ function startOnlineBlob(url, tr, blob){
     spFade=0; specDead=0;
   }catch(e){ startOnline(url, tr); }
 }
+/* v1.8.4：立刻出声（边下边播），后台缓存给播放让路；
+   缓存到手后由 adoptBlob 做无缝热切，位置不可信时宁可不切。 */
 function startOnline(url, tr){
   opStage=0; opSrc=url;
   audioO.removeAttribute('data-blob');
   if(isMobile){
     audioO.removeAttribute('crossorigin');      // 手机：原生出声保命，频谱靠后台同源blob到手后热切
-    setActive(audioO);
-    audioO.src=url;
-    spFade=0; applyVolume(true);                 // 音量从第一帧就按滑块生效，不再先最大声
-    primeBlob(url, tr);
   }else{
-    audioO.setAttribute('crossorigin','anonymous'); // PC：沿用原CORS流式秒播(行为不变)，blob仅作兜底
-    setActive(audioO);
-    audioO.src=url;
-    spFade=0;
-    primeBlob(url, tr);
+    audioO.setAttribute('crossorigin','anonymous'); // PC：沿用原CORS流式秒播，blob仅作兜底
   }
+  setActive(audioO);
+  audioO.src=url;
+  spFade=0; applyVolume(true);                   // 音量从第一帧就按滑块生效，不再先最大声
+  primeBlob(url, tr);
 }
 async function loadTrack(idx){
   const pl=currentPl();
@@ -4469,9 +4536,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.3';
-const APP_CODE = 67;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.4';
+const APP_CODE = 68;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.4', code:68, date:'2026-11-06', notes:[
+    '- 修复：慢网下缓存和播放抢同一条带宽互相拖死（缓存下载改为给播放让路）',
+    '- 修复：缓存到手热切换时位置往回退、听着像重了一段',
+    '- 缓存下载超时改为「无进展」判定，无损大文件不再 5 秒判死'
+  ]},
   { v:'1.8.3', code:67, date:'2026-11-06', notes:[
     '- 修复：慢网缓存时进度条「假前进」，缓存完成后从没听到的位置续播（跳过开头）',
     '- 缓冲饿死时进度改为停在真实已播位置，缓存到手后从该处无缝接上'
@@ -6074,7 +6146,8 @@ window.__wm={
   renderCacheUI:renderCacheUI, loadTrack:loadTrack, cacheGet:cacheGet, cachePut:cachePut,
   get state(){ return state; }, get store(){ return store; }, get audioO(){ return audioO; },
   get opStage(){ return opStage; }, renderPl:renderPl,
-  /* 仅供测试：慢网续播位置判定 */ resumePosFor:resumePosFor,
+  /* 仅供测试：缓存到手后的切换决策 */
+  adoptDecision:adoptDecision, playbackStarved:playbackStarved,
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
   get diskOk(){ return diskOk; }
 };
