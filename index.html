@@ -1871,7 +1871,10 @@ function saveStore(){
   try{
     const copy=JSON.parse(JSON.stringify(store));
     for(const k in copy.profiles){
-      copy.profiles[k].plists=(copy.profiles[k].plists||[]).map(pl=>({name:pl.name,tracks:(pl.tracks||[]).filter(t=>t.kind!=='local')}));
+      /* v1.8.14：歌词不再进 localStorage（挪去 IndexedDB），歌单/收藏/最近播放落盘时统一摘掉 lrc */
+      copy.profiles[k].plists=(copy.profiles[k].plists||[]).map(pl=>({name:pl.name,tracks:stripLrcList((pl.tracks||[]).filter(t=>t.kind!=='local'))}));
+      copy.profiles[k].favs=stripLrcList(copy.profiles[k].favs);
+      copy.profiles[k].recent=stripLrcList(copy.profiles[k].recent);
     }
     localStorage.setItem(KEY,JSON.stringify(copy));
     if(localStorage.getItem(KEY)===null){ LS_OK=false; warnLS(); }
@@ -2317,6 +2320,9 @@ function cachePut(url,b){
 
 /* ================= 持久音频缓存（IndexedDB） ================= */
 const DISK_DB='winamper_media', DISK_STORE='audio', DISK_META='winamper_disk_cache_meta';
+/* v1.8.14：歌词也进这个库（独立 store）。以前歌词挂在歌曲对象上随歌单写 localStorage，
+   几百首就能把 5MB 配额吃满；一旦写失败，整个歌单/设置都会停用保存。挪进 IndexedDB 后彻底解耦。 */
+const LYR_STORE='lyrics';
 const DISK_DEFAULT_MB=500, DISK_MIN_MB=100, DISK_MAX_MB=20480;   /* 上限最高 20 GB：高清（SQ/Hi-Res）一首 30~80MB，留给重度用户 */
 let diskDb=null, diskOk=true, diskReady=null;   /* diskOk=false 表示浏览器不支持/隐私模式，退回纯内存缓存 */
 let diskBytes=0, diskCount=0;                   /* 由 meta 记录累加，避免每次开页统计几十万个字节 */
@@ -2339,13 +2345,16 @@ function diskOpen(){
   if(diskReady) return diskReady;
   diskReady=new Promise(function(res){
     let req=null;
-    try{ req=indexedDB.open(DISK_DB,1); }catch(e){ diskOk=false; res(null); return; }
+    try{ req=indexedDB.open(DISK_DB,2); }catch(e){ diskOk=false; res(null); return; }
     if(!req){ diskOk=false; res(null); return; }
     req.onupgradeneeded=function(){
       const db=req.result;
       if(!db.objectStoreNames.contains(DISK_STORE)){
         const os=db.createObjectStore(DISK_STORE,{keyPath:'k'});
         os.createIndex('t','t');                     /* 按写入时间淘汰（近似 LRU，够用且实现简单） */
+      }
+      if(!db.objectStoreNames.contains(LYR_STORE)){
+        db.createObjectStore(LYR_STORE,{keyPath:'k'});   /* 歌词：只有 key 一个索引，永不参与「清缓存」 */
       }
     };
     req.onsuccess=function(){ diskDb=req.result; diskOk=true;
@@ -2477,6 +2486,73 @@ async function diskClear(){
   diskBytes=0; diskCount=0; diskSaveMeta();
   audioCache.clear(); audioCacheBytes=0;
   return true;
+}
+/* ================= 歌词持久化（IndexedDB，v1.8.14） =================
+   键 = 歌名|歌手（规范化）。歌词跟着歌走，不跟 URL、不跟音质 —— URL 有时效会变。
+   「清空缓存」只清音频 store，歌词永远保留；用户删歌时歌词随之留在库里也不碍事（几 KB 级）。 */
+function lyricKey(tr){
+  if(!tr) return '';
+  const name=String(tr.name||'').trim(), art=String(tr.artist||tr.art||'').trim();
+  if(!name) return '';
+  return name+'|'+art;
+}
+async function lyricPut(key,text){
+  if(!key||!text||!diskOk) return false;
+  try{
+    const db=await diskOpen(); if(!db) return false;
+    const os=db.transaction([LYR_STORE],'readwrite').objectStore(LYR_STORE);
+    os.put({k:key,l:String(text),t:Date.now()});
+    return true;
+  }catch(e){ return false; }
+}
+async function lyricGet(key){
+  if(!key||!diskOk) return null;
+  try{
+    const db=await diskOpen(); if(!db) return null;
+    const tx=db.transaction([LYR_STORE],'readonly');
+    return await new Promise(function(res){
+      let req; try{ req=tx.objectStore(LYR_STORE).get(key); }catch(e){ res(null); return; }
+      req.onsuccess=function(){ const r=req.result; res(r&&r.l?r.l:null); };
+      req.onerror=function(){ res(null); };
+    });
+  }catch(e){ return null; }
+}
+/* 歌单里没带歌词（v1.8.14 起不再随歌单落 localStorage）就异步从库里补；
+   只有当前正在播的这首歌才真正刷新歌词区，切走了就不打扰。 */
+function ensureLrc(tr){
+  if(!tr||tr.lrc) return;
+  const k=lyricKey(tr); if(!k) return;
+  lyricGet(k).then(function(txt){
+    if(!txt||tr.lrc) return;
+    tr.lrc=txt;
+    const pl=currentPl();
+    if(pl&&pl.tracks[state.track]===tr){ setLrc(txt); }
+  }).catch(function(){});
+}
+/* 从一个歌曲数组里把 lrc 摘掉（浅拷贝，不动原对象）：这些数组随 store 进 localStorage，
+   摘掉后 localStorage 只剩歌名歌手等元数据，体积小几个数量级 */
+function stripLrcList(arr){
+  return (arr||[]).map(function(t){
+    if(t&&t.lrc!=null){ const c=Object.assign({},t); delete c.lrc; return c; }
+    return t;
+  });
+}
+/* 一次性迁移：老版本把歌词存在 localStorage 的歌单/收藏/最近播放里，
+   开页时搬进 IndexedDB，然后立即 flushSave —— saveStore 会剥掉 lrc，localStorage 体积立刻降下来 */
+async function migrateLyrics(){
+  try{
+    let n=0;
+    for(const pk in store.profiles){
+      const p=store.profiles[pk]; if(!p) continue;
+      const groups=[p.plists||[], p.favs||[], p.recent||[]];
+      for(const arr of groups){
+        for(const tr of arr){
+          if(tr&&tr.kind!=='local'&&tr.lrc&&String(tr.lrc).trim()){ lyricPut(lyricKey(tr),tr.lrc); n++; }
+        }
+      }
+    }
+    if(n) flushSave();
+  }catch(e){}
 }
 function fmtSize(n){
   n=Math.max(0,n|0);
@@ -3331,7 +3407,7 @@ async function loadTrack(idx){
         if(state.track!==idx){ if(state.track>=0) return; }
         tr.__blob=disk; holdBlob(tr);
         startOnlineBlob(url, tr, disk);
-        setLrc(tr.lrc||null); followCurrentPage(); pushRecent(tr); updateDisplay(); renderPl();
+        setLrc(tr.lrc||null); ensureLrc(tr); followCurrentPage(); pushRecent(tr); updateDisplay(); renderPl();
         play(); applyVolume(true); watchVolume(); if(!tr.lrc) autoMatchLrc(tr);
         return;
       }
@@ -3345,7 +3421,7 @@ async function loadTrack(idx){
     if(state.track!==idx) return;          // 已被更晚的切换覆盖
     startOnline(url, tr);
   }
-  setLrc(tr.lrc||null);
+  setLrc(tr.lrc||null); ensureLrc(tr);
   followCurrentPage();
   pushRecent(tr);                              /* 记入「最近播放」，去重并按最新在前 */
   updateDisplay(); renderPl();
@@ -3370,7 +3446,7 @@ async function autoMatchLrc(tr){
   if(!best){ toast('没自动匹配到歌词，可点「在线匹配歌词」自己改关键词搜','warn'); return; }
   let lrcText=null;
   try{ lrcText=await gdLyric(best); }catch(e){}
-  if(lrcText&&lrcText.trim()){ tr.lrc=lrcText; savePrefs(); setLrc(lrcText); toast('已自动匹配歌词'); }
+  if(lrcText&&lrcText.trim()){ tr.lrc=lrcText; lyricPut(lyricKey(tr),lrcText); savePrefs(); setLrc(lrcText); toast('已自动匹配歌词'); }
   else{ toast('没自动匹配到歌词，可点「在线匹配歌词」自己改关键词搜','warn'); }
 }
 $('btnPlay').addEventListener('click',toggle);
@@ -4271,7 +4347,7 @@ function addLocalFiles(files){
 /* 歌词文件 */
 $('btnLrc').addEventListener('click',()=>$('fileLrc').click());
 $('btnLrc2').addEventListener('click',()=>$('fileLrc').click());
-$('fileLrc').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ if(state.track>=0){ currentPl().tracks[state.track].lrc=r.result; savePrefs(); } setLrc(r.result); toast('歌词已加载'); }; r.readAsText(f); e.target.value=''; });
+$('fileLrc').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ if(state.track>=0){ const tr=currentPl().tracks[state.track]; tr.lrc=r.result; lyricPut(lyricKey(tr),r.result); savePrefs(); } setLrc(r.result); toast('歌词已加载'); }; r.readAsText(f); e.target.value=''; });
 
 /* ================= 用户档案 ================= */
 $('btnUser').addEventListener('click',()=>{ renderProfileSel(); refreshRenameName(); $('userMask').classList.add('show'); updateFsUi(); renderCacheUI(); refreshCacheUIAsync(); });
@@ -4581,9 +4657,15 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.13';
-const APP_CODE = 77;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.14';
+const APP_CODE = 78;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.14', code:78, date:'2026-11-07', notes:[
+    '- 加固：歌词改存 IndexedDB 独立空间，不再挤占歌单/设置共用的 localStorage 配额',
+    '- 收藏几百上千首的歌词也不会再撑爆存储、连累歌单和设置保存失效',
+    '- 老用户升级时自动把已存的歌词搬进新空间，无感知、不需任何操作',
+    '- 「清空缓存」只清歌曲文件，歌词保留'
+  ]},
   { v:'1.8.13', code:77, date:'2026-11-06', notes:[
     '- 回滚 v1.8.12 的播放改动：该版为避免「开头被吞」而在蓝牙/前 8 秒不做本地缓存热切，结果在线歌曲全程改走流式，连续切歌时容易卡住不上声',
     '- 播放行为恢复到 v1.8.11（缓存下完即原位接续），在线歌单切歌恢复正常',
@@ -6002,7 +6084,7 @@ $('lyricPickList').addEventListener('click',async e=>{
   toast('正在加载歌词…');
   const lrcText=await gdLyric(cand.id);
   if(!lrcText||!lrcText.trim()){ toast('该候选无歌词','warn'); return; }
-  tr.lrc=lrcText; savePrefs(); setLrc(lrcText);
+  tr.lrc=lrcText; lyricPut(lyricKey(tr),lrcText); savePrefs(); setLrc(lrcText);
   $('lyricMask').classList.remove('show');
   toast('歌词已匹配：'+cand.name);
 });
@@ -6199,6 +6281,7 @@ loadSources(); renderSrcState(); renderSubMeta();
 setTimeout(function(){ try{ checkSubUpdate({silent:true}); }catch(e){} }, 4000);
 loadFsDir().then(function(){ updateFsUi(); });
 loadStore();
+migrateLyrics();                       /* v1.8.14：把 localStorage 里的存量歌词搬进 IndexedDB，搬完即瘦身 */
 refreshUserUI();                       /* 启动即刷新面板上的用户名与头像（此前只在档案操作后刷新，重启后一直显示静态的「访客」） */
 const prof=curProf();
 state.pl=clamp(prof.lastPl||0,0,Math.max(0,plists().length-1));   /* 先定好歌单位置，后面任何一次保存才不会把它写回 0 */
@@ -6231,6 +6314,10 @@ window.__wm={
   /* 仅供测试：缓存到手后的切换决策 */
   adoptDecision:adoptDecision, playbackStarved:playbackStarved,
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
+  /* 仅供测试：歌词持久化（v1.8.14） */
+  lyricKey:lyricKey, lyricPut:lyricPut, lyricGet:lyricGet, migrateLyrics:migrateLyrics,
+  saveStore:saveStore, loadStore:loadStore, flushSave:flushSave,
+  get plistsRaw(){ return plists(); },
   get diskOk(){ return diskOk; }
 };
 })();
