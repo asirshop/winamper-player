@@ -1039,7 +1039,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   /* 窄横屏（如 640px 宽）左列放不下「打开音乐+在线搜索+排行榜+皮肤框」，
      之前整行溢出被右列盖住（结合处按键被遮挡）。两步兜底：
      ① 皮肤框允许收缩（88 → 最小 56px）；② 实在放不下整行换行，绝不溢出列外。 */
-  .land-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; row-gap: 3px;
+  .land-tools { display: flex; align-items: center; flex-wrap: nowrap; gap: 5px;
                 padding: 0 0 2px; min-width: 0; overflow: hidden; }
   .land-tools:empty { display: none; }
   .land-tools button, .land-tools .skin-box { flex: 0 0 auto; }
@@ -1059,6 +1059,12 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
                                  background: var(--btn-bg); color: var(--txt);
                                  border: 1px solid var(--chrome-edge); border-radius: 5px; padding: 0 4px; }
   .land-tools .skin-label { display: none; }
+  /* 语言选择键也可以搬进工具条（v1.8.22：排在排行榜与帮助之间），
+     这里给它在工具条里的外观，跟旁边按钮同一套尺寸与配色。 */
+  .land-tools .lang-sel { flex: 0 1 86px; width: 86px; min-width: 52px; height: 26px;
+                          font-family: inherit; font-size: 11px; padding: 0 4px;
+                          background: var(--btn-bg); color: var(--txt);
+                          border: 1px solid var(--chrome-edge); border-radius: 5px; }
 
   /* 退出键固定在顶栏最右边：横屏时由脚本把它搬到顶栏末尾（.titlebar > #btnExitApp），
      这样不管中间按钮怎么占宽，退出键永远贴最右，位置稳定好按。 */
@@ -1078,8 +1084,12 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 
   /* 主体两列：左列 = 控制区 + 歌词（贴左列底部），右列 = 整列播放列表。
      中间留 8px 空隙 + 分界线，两侧内容不再顶着分界线挤在一起 */
-  .main { display: grid; grid-template-columns: var(--land-left-w, 44%) 1fr; gap: 0 8px;
-          padding: 0 2px; }
+  /* 左列宽度 = 基准占比 + 固定扩宽量（v1.8.22：左列往右扩 19mm，右列歌单收窄）。
+     用 calc 而不是直接改百分比，是为了让「扩多少」在各档保持一致，不随屏幕宽度变。
+     窄屏档位会逐级缩小扩宽量，保证右列不被挤到不能看。 */
+  .main { --land-grow: 19mm;
+          display: grid; grid-template-columns: calc(var(--land-left-w, 44%) + var(--land-grow)) 1fr;
+          gap: 0 10px; padding: 0 2px; }
   .main > .left { display: flex; flex-direction: column; min-height: 0; overflow: hidden;
                   border-right: 1px solid var(--chrome-edge); padding-right: 8px; }
   .main > .right { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden;
@@ -1121,6 +1131,10 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   .eqrow { gap: 5px; }
   #fxSel, #qualitySel { height: 26px; }
   .eqrow .eq-btn { height: 26px; }
+  /* 两个下拉按内容长度分宽度：音质选项「自动（默认）」比音效的「原声」长得多，
+     均分时音质框必然截断；改成音效略窄、音质略宽，短文案截不了、长文案放得下。 */
+  .eqrow #fxSel { flex: 0.9 1 0; }
+  .eqrow #qualitySel { flex: 1.3 1 0; }
 
   /* 频谱 + 竖排音量：高度一起锁死，并尽量吃满左列剩余空间（问题 1：原来只有 64px 太窄）。
      用 clamp 让它在矮屏自动收缩，保证下面两排按钮和进度条不被挤出屏幕。 */
@@ -1177,18 +1191,25 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   .tbtn.big { height: 34px; }
   .trow2 .tbtn { height: 27px; }
   .seek { padding: 0 2px; }
-  .main { grid-template-columns: var(--land-left-w, 46%) 1fr; }
+  .main { --land-grow: 19mm; grid-template-columns: calc(var(--land-left-w, 46%) + var(--land-grow)) 1fr; }
   .left .lyrics .lyric { font-size: 10.5px; line-height: 1.45; }
   .left .lyrics .lyric.cur { font-size: 12px; }
   .left .lyrics { min-height: 40px; }
 }
 
-/* 窄屏横屏（≤620px 宽，如 568x320、480x320）：工具条要放四个键（含帮助），
-   一行装不下会换行、把歌词区挤矮。这里去掉图标、收紧内边距，保证仍是一行。 */
-@media (orientation: landscape) and (max-height: 500px) and (max-width: 620px) {
+/* 窄屏横屏（≤740px 宽）：工具条要放五项（打开音乐 / 在线搜索 / 排行榜 / 语言 / 帮助），
+   带图标一行装不下会溢出裁切、把歌词区挤矮。这里去掉图标、收紧内边距与语言框宽度。 */
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 740px) {
   .land-tools { gap: 4px; }
   .land-tools button { padding: 0 6px; font-size: 10px; gap: 2px; }
   .land-tools button .ic { display: none; }
+  .land-tools .lang-sel { flex: 0 1 74px; width: 74px; font-size: 10px; padding: 0 3px; }
+}
+
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 620px) {
+  /* 小屏横向寸土寸金：扩宽量收到 11mm，右列还留得下 230px 以上给歌单 */
+  .main { --land-grow: 11mm; }
+  .land-tools .lang-sel { flex: 0 1 66px; width: 66px; }
 }
 
 /* 极矮横屏（≤310px，扣掉状态栏后的 640x296 之类）：只留核心信息，按钮再压 */
@@ -1205,7 +1226,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   .tbtn.big { height: 32px; }
   .trow2 .tbtn { height: 25px; }
   .eqrow .elabel { font-size: 10px; }
-  .main { grid-template-columns: var(--land-left-w, 48%) 1fr; }
+  .main { --land-grow: 13mm; grid-template-columns: calc(var(--land-left-w, 48%) + var(--land-grow)) 1fr; }
   .left .lyrics .lyric { font-size: 10px; line-height: 1.4; }
   .left .lyrics .lyric.cur { font-size: 11.5px; }
   .left .lyrics .panel-head { padding: 2px 6px; }
@@ -5015,9 +5036,16 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.21';
-const APP_CODE = 88;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.22';
+const APP_CODE = 90;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.22', code:88, date:'2026-11-07', notes:[
+    '横屏布局再平衡：左宽右窄、语言键归队',
+    '- 横屏左列往右扩约 19mm（窄屏自动收敛），右列歌单不再占那么宽，两侧比例更匀称',
+    '- 横屏时「语言选择」移入左列工具条，排在排行榜和帮助之间；顶栏第一排只剩 品牌·徽标·皮肤·用户·退出，更清爽',
+    '- 音效/音质两个下拉按内容长短分配宽度，横屏下「自动（默认）」不再被截断',
+    '- 竖屏布局不受影响：语言键仍在顶栏帮助键左边，皮肤键仍在第三排'
+  ]},
   { v:'1.8.21', code:87, date:'2026-11-07', notes:[
     '横屏顶栏与工具条布局再优化',
     '- 横屏时「帮助」键从顶栏移到左列工具条末位（打开音乐 / 在线搜索 / 排行榜 / 帮助），顶栏少一个挤位、功能入口排在一起更顺',
@@ -6640,11 +6668,11 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
       btns.forEach(function(b){ if(b.parentElement!==row) row.appendChild(b); });
     }
   }
-  /* 顶栏精简（v1.8.21）：
-     横屏时顶栏只保留「品牌 · 金玉版徽标 · 皮肤 · 语言 · 用户 · 退出」，
-     「打开音乐 / 在线搜索 / 排行榜 / 帮助」搬到左列控制区顶部的工具条——
-     帮助键跟在排行榜右边，比留在顶栏更顺手，也让顶栏少一个挤位。
-     退出键搬到顶栏最末尾（贴最右），位置固定好按；竖屏全部原样放回。 */
+  /* 顶栏精简（v1.8.22）：
+     横屏时顶栏只保留「品牌 · 金玉版徽标 · 皮肤 · 用户 · 退出」，
+     「打开音乐 / 在线搜索 / 排行榜 / 语言 / 帮助」搬到左列控制区顶部的工具条——
+     语言选择夹在排行榜和帮助之间：左列变宽后这里正好放得下，
+     顶栏第一排也终于不再挤。退出键搬到最后贴最右，位置固定好按；竖屏全部原样放回。 */
   const MOVE_IDS=['btnMusic','btnSearch','btnChart'];
   function syncHeader(){
     const bar=document.querySelector('.titlebar');
@@ -6653,6 +6681,7 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
     const exit=document.getElementById('btnExitApp');
     const help=document.getElementById('pgHelpBtn');
     const nav=document.getElementById('topNav');
+    const lang=document.getElementById('langSel');
     /* 注意：不能写成 '.titlebar .skin-box' —— 被搬到工具条后就查不到了 */
     const skinBox=document.querySelector('.skin-box');
     if(!bar||!acts||!tools) return;
@@ -6663,9 +6692,14 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
         const el=document.getElementById(id);
         if(el&&el.parentElement!==tools) tools.appendChild(el);
       });
-      /* 帮助键 → 工具条末位（排行榜右边） */
+      /* 帮助键 → 工具条末位 */
       if(help&&help.parentElement!==tools) tools.appendChild(help);
-      /* 皮肤下拉 → 顶栏第一排右端（语言/帮助之后）：左列工具条不再放它，
+      /* 语言选择键 → 排行榜与帮助之间（插在帮助前面，即排行榜后面） */
+      if(lang&&lang.parentElement!==tools){
+        if(help&&help.parentElement===tools) tools.insertBefore(lang, help);
+        else tools.appendChild(lang);
+      }
+      /* 皮肤下拉 → 顶栏第一排右端：左列工具条不再放它，
          省出的 26px+ 还给歌词区；竖屏时原样放回操作组第三排。 */
       const brand=document.querySelector('.titlebar .tb-brand');
       if(skinBox&&brand&&nav&&skinBox.parentElement!==brand){
@@ -6685,12 +6719,9 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
       if(c3&&c3.parentElement!==acts) acts.appendChild(c3);
       if(skinBox&&skinBox.parentElement!==acts) acts.appendChild(skinBox);
       if(exit&&exit.parentElement!==acts) acts.appendChild(exit);
-      /* 帮助键回到顶栏语言选择右边 */
-      if(help&&nav){
-        const lang=document.getElementById('langSel');
-        if(lang&&lang.parentElement===nav){ if(help.parentElement!==nav||help.previousElementSibling!==lang) nav.insertBefore(help, lang.nextSibling); }
-        else if(help.parentElement!==nav) nav.appendChild(help);
-      }
+      /* 语言选择键先回顶栏首位，帮助键再跟到它右边 */
+      if(lang&&nav&&lang.parentElement!==nav) nav.insertBefore(lang, nav.firstChild);
+      if(help&&nav&&help.parentElement!==nav) nav.appendChild(help);
       acts.style.display='';
     }
   }

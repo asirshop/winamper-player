@@ -1,13 +1,14 @@
 {
-  "version": "1.8.21",
-  "code": 88,
+  "version": "1.8.22",
+  "code": 90,
   "channel": "stable",
-  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.8.21/winamper-gold-v1.8.21.apk",
+  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.8.22/winamper-gold-v1.8.22.apk",
   "notes": [
-    "横屏顶栏与工具条布局再优化",
-    "- 横屏时「帮助」键从顶栏移到左列工具条末位（打开音乐 / 在线搜索 / 排行榜 / 帮助），顶栏少一个挤位、功能入口排在一起更顺",
-    "- 窄屏横屏（≤620px 宽）工具条自动收成无图标紧凑样式，四个键仍是一行，歌词区不会被挤矮",
-    "- 皮肤下拉保持在顶栏第一排右端不变；竖屏布局不受影响"
+    "横屏布局再平衡：左宽右窄、语言键归队",
+    "- 横屏左列往右扩约 19mm（窄屏自动收敛），右列歌单不再占那么宽，两侧比例更匀称",
+    "- 横屏时「语言选择」移入左列工具条，排在排行榜和帮助之间；顶栏第一排只剩 品牌·徽标·皮肤·用户·退出，更清爽",
+    "- 音效/音质两个下拉按内容长短分配宽度，横屏下「自动（默认）」不再被截断",
+    "- 竖屏布局不受影响：语言键仍在顶栏帮助键左边，皮肤键仍在第三排"
   ],
   "page": "https://asirshop.github.io/winamper-player/"
 }
