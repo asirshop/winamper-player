@@ -1,0 +1,47 @@
+name: charts
+
+# 榜单数据机器人：每天抓两次网易云/酷狗的公开榜单，生成 charts.json 推到仓库根。
+#
+# 为什么需要它：两家榜单接口都不发 Access-Control-Allow-Origin，浏览器 fetch 必被拦；
+# 公共 CORS 代理（allorigins 等）已全部失效，网页版排行榜因此一度不可用。
+# 改成「构建期抓取 → 静态同源 JSON」后：网页直接读同源文件，零跨域、零第三方依赖，
+# 榜单本来就是日更，一天两次完全够。APK 内仍走原生 HttpPlugin 直连，更实时。
+
+on:
+  schedule:
+    - cron: '23 21 * * *'   # 北京时间 05:23（凌晨，避开白天抓取高峰）
+    - cron: '23 9 * * *'    # 北京时间 17:23
+  workflow_dispatch: {}       # 支持手动触发
+
+permissions:
+  contents: write
+
+concurrency:
+  group: charts
+  cancel-in-progress: true
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch charts
+        run: python3 tools/fetch_charts.py charts.json
+
+      # 抓到空数据时不覆盖旧文件（脚本内部已处理：两个源都空则 exit 1，此处不会提交）
+      - name: Commit charts.json
+        run: |
+          git config user.name "winamper-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add charts.json
+          if git diff --cached --quiet; then
+            echo "榜单无变化，跳过提交"
+          else
+            git commit -m "charts: refresh $(date -u +%F\ %H:%M) UTC"
+            git push
+          fi
