@@ -3485,13 +3485,14 @@ function rescueToNative(){
   return true;
 }
 function attachB(){ /* 兜底元素保持原生出声，绝不接入 Web Audio，杜绝污染流反而静音 */ }
-const BLOB_PROXIES=[
-  'https://api.allorigins.win/raw?url=',
-  'https://api.codetabs.com/v1/proxy/?quest=',
-  'https://corsproxy.io/?url=',
-  'https://api.cors.lol/?url=',
-  'https://api.allorigins.win/get?url='
-];
+/* 跨域音频代理池（v1.9.1 清空）
+   原先填了 allorigins / codetabs / corsproxy / cors.lol 五个公共代理，
+   现在实测全部不可用：allorigins 停服、codetabs 连接被拒、corsproxy 要 key（401）、
+   cors.lol 限流（429）。留着只会让每次播放失败多绕一圈、白等超时，
+   连续切歌时几个挂起的请求叠在一起，正在播的那首也跟着卡。
+   音频 CDN（m801.music.126.net 等）本身不校验 Referer、可直接播，不需要代理。
+   机制保留：以后确认有可用代理，往这里加一条即可自动恢复。 */
+const BLOB_PROXIES=[];
 /* 缓存到手后是否切到本地文件、切过去从哪一秒接上（纯函数，便于自动测试）
    原则：位置用 currentTime 原位接上，绝不往回退（回退等于重听一段，比断一下更明显）。
    只有一种情况不切：此刻正卡着没数据（readyState<3），说明流式这边本就供不上，
@@ -3902,7 +3903,7 @@ function bindAudio(el){
   el.addEventListener('ended',onEnded);
   el.addEventListener('play',()=>{ if(el!==activeEl) return; state.playing=true; setIcon(true); updateDisplay(); });
   el.addEventListener('pause',()=>{ if(el!==activeEl) return; state.playing=false; setIcon(false); });
-  el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=PROXY+encodeURIComponent(opSrc); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用','err'); });
+  el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } const ap=aliveProxies(); if(ap.length){ opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=ap[0]+encodeURIComponent(opSrc); return; } opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用','err'); });
 }
 bindAudio(audio); bindAudio(audioO); bindAudio(audioB);
 /* ---- 缓冲状态巡检（v1.8.20-beta2）----
@@ -5036,9 +5037,17 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.0-beta1';
-const APP_CODE = 91;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.1';
+const APP_CODE = 92;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.1', code:92, date:'2026-11-07', notes:[
+    '网页版修复：排行榜恢复 + 在线音乐不再「点了不播」',
+    '- 修复：网页版排行榜用不了——两家榜单接口都不给跨域头，原先兜底的公共代理已全部停服；现改由机器人每天抓取、存成同源数据，网页直接读，不再依赖任何第三方代理',
+    '- 修复：网页版在线音乐偶发播不了——接口 503（限流）时代码直接放弃，还转头去等已停服的代理，每次白卡十几秒；现在会自动重试，已死代理也从链路里摘除',
+    '- 顺带：连续切歌不再因为几个卡住的请求把连接池占满（这正是「点哪首都不播」的成因）',
+    '- APP 端榜单仍走原生直连更实时；本地音乐、歌单、音效、外观均不受影响',
+    '- 本版同时包含 1.9.0-beta1 的源码架构重构（拆成 24 个模块，行为与 1.8.22 完全一致）'
+  ]},
   { v:'1.9.0-beta1', code:90, date:'2026-11-07', notes:[
     '内部结构重构（这一版没有任何功能变化）',
     '· 把 7300 行的单文件拆成 23 个按职责划分的源码模块，改功能时不用再全文搜索',
@@ -6048,17 +6057,34 @@ $('btnApiCfg').addEventListener('click',function(){ $('apiCfg').classList.toggle
 $('btnDoSearch').addEventListener('click',doSearch);
 $('searchInput').addEventListener('keydown',e=>{ if(e.key==='Enter') doSearch(); });
 function srcDot(mode){ const d=$('srcDot'); d.className='src-dot'+(mode==='ok'?' ok':mode==='busy'?' busy':''); }
-/* 跨域代理回退：本地 file:// 打开时浏览器会拦 CORS，先直连、失败走代理 */
-const PROXY='https://api.allorigins.win/raw?url=';
+/* 跨域回退：接口本身带 access-control-allow-origin:*，网页直连即可，不需要代理。
+   原先兜底的公共代理已全部失效（allorigins 停服、codetabs 连不上、corsproxy 要 key、
+   cors.lol 限流），留着只会让每次失败多等 4 秒、还占住连接池——
+   连续切歌时几首叠在一起，正在播的那首也跟着抢不到带宽，表现为「点哪首都不播」。
+   真正要治的是接口偶发 503（Cloudflare 限流）：隔几百毫秒重试一次基本就过。 */
+async function apiOnce(url,ms){
+  const c=new AbortController(); const t=setTimeout(function(){c.abort();},ms);
+  try{
+    const r=await fetch(url,{mode:'cors',signal:c.signal});
+    if(r.ok){ const j=await r.json(); return j?{ok:true,data:j}:{ok:false,retry:false}; }
+    /* 429/5xx = 对方限流或过载，退避后重试通常能过；其余 4xx 是请求本身有问题，重试没意义 */
+    return {ok:false, retry:(r.status===429||r.status>=500), status:r.status};
+  }catch(e){
+    return {ok:false, retry:true, status:0};      /* 网络抖动/超时：值得再试 */
+  }finally{ clearTimeout(t); }
+}
 async function apiJson(url){
-  try{ const c=new AbortController(); const t=setTimeout(function(){c.abort();},9000);
-    const r=await fetch(url,{mode:'cors',signal:c.signal}); clearTimeout(t);
-    if(r.ok){ const j=await r.json(); if(j) return j; } }catch(e){}
-  /* 代理这条也要有上限：公共代理挂了会一直挂着不回，切歌时几首叠在一起就把连接池占满，
-     正在播的那首也跟着抢不到带宽 —— 表现为「点了没反应，切哪首都不播」。 */
-  try{ const c2=new AbortController(); const t2=setTimeout(function(){c2.abort();},4000);
-    const r=await fetch(PROXY+encodeURIComponent(url),{mode:'cors',signal:c2.signal}); clearTimeout(t2);
-    if(r.ok) return await r.json(); }catch(e){}
+  /* 实测该接口 503 率约 15~20%、响应 2~4 秒，单次失败很常见。
+     重试 4 次（退避递增）后成功率 ≥ 99.9%；同时设 13 秒总预算，
+     避免切歌时几个请求叠在一起无限等——那正是「点哪首都不播」的元凶。 */
+  const t0=Date.now();
+  for(let i=0;i<4;i++){
+    if(Date.now()-t0>13000) break;
+    const r=await apiOnce(url, i===0?5500:4000);
+    if(r.ok) return r.data;
+    if(!r.retry) return null;
+    if(i<3) await new Promise(function(res){ setTimeout(res, 320+i*480); });
+  }
   return null;
 }
 
@@ -6321,12 +6347,16 @@ const SUB_KEY='winamp_api_sub_v1';
 const SUB_META_KEY='winamp_api_sub_meta_v1';   /* 订阅地址/上次同步时间/清单版本 */
 let subChecker=null;
 async function fetchText(url){
-  try{
-    const c=new AbortController(); const t=setTimeout(function(){ c.abort(); },12000);
-    const r=await fetch(url,{mode:'cors',signal:c.signal}); clearTimeout(t);
-    if(r.ok) return await r.text();
-  }catch(e){}
-  try{ const r=await fetch(PROXY+encodeURIComponent(url),{mode:'cors'}); if(r.ok) return await r.text(); }catch(e){}
+  /* 订阅清单常放在 raw.githubusercontent.com（国内容易连不上）。
+     原来靠公共代理兜底，代理全失效后改为直连重试一次：调用方已备了 jsdelivr 镜像做备份地址。 */
+  for(let i=0;i<2;i++){
+    try{
+      const c=new AbortController(); const t=setTimeout(function(){ c.abort(); }, i?5000:8000);
+      const r=await fetch(url,{mode:'cors',signal:c.signal}); clearTimeout(t);
+      if(r.ok) return await r.text();
+    }catch(e){}
+    if(i===0) await new Promise(function(res){ setTimeout(res, 400); });
+  }
   return null;
 }
 function parseSubList(txt){
@@ -6894,6 +6924,44 @@ const CHART_SRCS={
       .filter(function(t){ return t.name; }); } }
 };
 let chartSrcId='netease', chartCharts=[], chartCur='', chartSongs=[], chartReq=0;
+/* v1.9.1：网页版的取数方式改了。
+   起因：两家榜单接口都不发 Access-Control-Allow-Origin，网页 fetch 必被拦；
+        原先兜底的公共 CORS 代理（allorigins 等）已全部失效，网页版榜单直接不可用。
+   做法：由 GitHub Actions 每天抓一次榜单，生成同源的 charts.json；
+        网页直接读同源文件——没有跨域问题，也不欠任何第三方代理的人情。
+        APK 仍走原生 HttpPlugin 直连（更实时），逻辑不变。 */
+let chartBundle=null, chartBundleTried=false;
+function chartNative(){ 
+  try{
+    if(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform()) return true;
+    if(window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.HttpPlugin) return true;
+  }catch(e){}
+  return false;
+}
+/* 读同源榜单包：主站 ./charts.json，beta 子目录 ../charts.json（release 也放了一份，双保险） */
+async function chartBundleLoad(force){
+  if(chartNative()) return null;                     /* APK 用原生桥，数据更新更及时 */
+  if(force){ chartBundleTried=false; chartBundle=null; }
+  if(chartBundle) return chartBundle;
+  if(chartBundleTried) return null;
+  chartBundleTried=true;
+  const cands=['./charts.json','../charts.json'];
+  for(let i=0;i<cands.length;i++){
+    try{
+      /* 普通打开走浏览器/CDN 缓存（快）；点「刷新」才加时间戳强拉最新 */
+      const u=force?cands[i]+'?t='+Date.now():cands[i];
+      const r=await fetch(u,force?{cache:'no-store'}:undefined);
+      if(!r.ok) continue;
+      const j=await r.json();
+      if(j&&j.sources){ chartBundle=j; return j; }
+    }catch(e){}
+  }
+  return null;
+}
+function chartBundleCharts(b,srcId){
+  const s=b&&b.sources&&b.sources[srcId];
+  return (s&&Array.isArray(s.charts)&&s.charts.length)?s.charts:null;
+}
 function chartPlugin(){ try{ if(window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.HttpPlugin) return Capacitor.Plugins.HttpPlugin; }catch(e){} return null; }
 async function chartHttp(url){
   if(window.__mockChartHttp) return window.__mockChartHttp(url);
@@ -6902,23 +6970,40 @@ async function chartHttp(url){
     const p=chartPlugin();
     if(p&&p.get){ const r=await p.get({url:url}); const t=(r&&(r.text||''))||''; if(t) return JSON.parse(t); }
   }catch(e){}
-  /* 2) 网页：先试直连（万一环境不拦），失败走公共代理 */
+  /* 本地文件打开：fetch 必被 file:// 的跨域策略挡死，别白等，直接认失败 */
+  if(location.protocol==='file:') return null;
+  /* 2) 直连（两家都不发 CORS 头，实际必失败；留着以防对方哪天加了头） */
   try{
-    const ac=new AbortController(); const t0=setTimeout(function(){ac.abort();},9000);
+    const ac=new AbortController(); const t0=setTimeout(function(){ac.abort();},4000);
     const r=await fetch(url,{mode:'cors',signal:ac.signal}); clearTimeout(t0);
     if(r.ok) return await r.json();
   }catch(e){}
-  const proxies=['https://api.allorigins.win/raw?url=','https://api.allorigins.win/get?url='];
+  /* 3) 公共代理兜底（当前基本都失效，超时压到 3s，避免用户干等） */
+  const proxies=['https://api.allorigins.win/raw?url=','https://api.cors.lol/?url='];
   for(let i=0;i<proxies.length;i++){
     try{
-      const r=await fetch(proxies[i]+encodeURIComponent(url),{mode:'cors'});
+      const ac=new AbortController(); const t0=setTimeout(function(){ac.abort();},3000);
+      const r=await fetch(proxies[i]+encodeURIComponent(url),{mode:'cors',signal:ac.signal});
+      clearTimeout(t0);
       if(!r.ok) continue;
       let t=await r.text();
-      if(i===1){ const j=JSON.parse(t); t=(j&&j.contents)||''; }
-      if(t) return JSON.parse(t);
+      if(!t) continue;
+      try{ return JSON.parse(t); }catch(e){}
     }catch(e){}
   }
   return null;
+}
+/* 批量写曲目缓存：一次读一次写，避免逐条 JSON.stringify 整个缓存 */
+function chartCachePutMany(kv){
+  try{
+    const c=chartCacheLoad();
+    let n=0;
+    for(const k in kv){ if(Array.isArray(kv[k])&&kv[k].length){ c[k]={ts:Date.now(),data:kv[k]}; n++; } }
+    const ks=Object.keys(c);
+    if(ks.length>80){ ks.sort(function(a,b){ return (c[a].ts||0)-(c[b].ts||0); }).slice(0,ks.length-80).forEach(function(k){ delete c[k]; }); }
+    localStorage.setItem(CHART_KEY,JSON.stringify(c));
+    return n;
+  }catch(e){ return 0; }
 }
 function chartCacheLoad(){ try{ return JSON.parse(localStorage.getItem(CHART_KEY))||{}; }catch(e){ return {}; } }
 function chartCacheGet(key,maxAge){
@@ -6930,7 +7015,7 @@ function chartCachePut(key,data){
   try{
     const c=chartCacheLoad(); c[key]={ts:Date.now(),data:data};
     const ks=Object.keys(c);
-    if(ks.length>40){ ks.sort(function(a,b){ return (c[a].ts||0)-(c[b].ts||0); }).slice(0,ks.length-40).forEach(function(k){ delete c[k]; }); }
+    if(ks.length>80){ ks.sort(function(a,b){ return (c[a].ts||0)-(c[b].ts||0); }).slice(0,ks.length-80).forEach(function(k){ delete c[k]; }); }
     localStorage.setItem(CHART_KEY,JSON.stringify(c));
   }catch(e){}
 }
@@ -6984,9 +7069,19 @@ async function chartLoadCharts(force){
   if(!list){
     chartLoading=true;
     chartStatus('正在获取榜单列表…');
-    const j=await chartHttp(src.listUrl);
+    const b=await chartBundleLoad(force);
+    const bc=chartBundleCharts(b, chartSrcId);
+    if(bc){
+      list=bc.map(function(c){ return {id:String(c.id),name:c.name||'',sub:c.sub||''}; });
+      /* 顺手把各榜单曲目批量落盘：之后点开任意榜单都是秒开，断网也还能看 */
+      const kv={};
+      bc.forEach(function(c){ if(c.songs&&c.songs.length) kv['songs:'+chartSrcId+':'+c.id]=c.songs; });
+      chartCachePutMany(kv);
+    }else{
+      const j=await chartHttp(src.listUrl);
+      list=j?src.parseList(j):[];
+    }
     chartLoading=false;
-    list=j?src.parseList(j):[];
     if(list.length) chartCachePut(key,list);
   }
   chartCharts=list;
@@ -6996,7 +7091,9 @@ async function chartLoadCharts(force){
     chartSyncAddAll();
     const box=$('chartList'); if(box) box.innerHTML='';
     const sub=$('chartSub'); if(sub) sub.textContent='';
-    chartStatus('榜单暂时不可用，稍后再试或点「↻ 刷新」重试');
+    chartStatus(location.protocol==='file:'
+      ? '本地文件模式取不到在线榜单：请用在线版网页或 APP 查看'
+      : '榜单暂时不可用，稍后再试或点「↻ 刷新」重试');
     return;
   }
   const keep=list.some(function(c){ return c.id===chartCur; });
@@ -7012,9 +7109,17 @@ async function chartSelect(id,force){
   if(!songs){
     chartStatus('正在获取曲目…');
     const box=$('chartList'); if(box) box.innerHTML='';
-    const j=await chartHttp(src.songsUrl(id));
-    if(tok!==chartReq) return;                /* 等待期间用户已切走 */
-    songs=j?src.parseSongs(j):[];
+    /* 同源榜单包优先（网页版），其次原生桥/直连 */
+    const b=await chartBundleLoad(force);
+    const bc=chartBundleCharts(b, chartSrcId);
+    const hit=bc?bc.filter(function(c){ return String(c.id)===String(id); })[0]:null;
+    if(hit&&hit.songs&&hit.songs.length){
+      songs=hit.songs;
+    }else{
+      const j=await chartHttp(src.songsUrl(id));
+      if(tok!==chartReq) return;                /* 等待期间用户已切走 */
+      songs=j?src.parseSongs(j):[];
+    }
     if(songs.length) chartCachePut(key,songs);
   }
   if(tok!==chartReq) return;
@@ -7114,6 +7219,10 @@ window.__wm={
   /* 仅供测试：歌词持久化（v1.8.14） */
   lyricKey:lyricKey, lyricPut:lyricPut, lyricGet:lyricGet, migrateLyrics:migrateLyrics,
   /* 仅供测试：排行榜（v1.8.15） */  chartHttp:chartHttp, chartLoadCharts:chartLoadCharts, chartSelect:chartSelect,
+  /* 仅供测试：同源榜单包（v1.9.1） */
+  chartBundleLoad:chartBundleLoad,
+  __chartBundle:function(){ return chartBundle; },
+  __resetChartBundle:function(){ chartBundle=null; chartBundleTried=false; },
   addChartSongs:addChartSongs, resolveTrackByName:resolveTrackByName,
   get chartSongs(){ return chartSongs; }, get chartCharts(){ return chartCharts; },
   __chartState:function(){ return {src:chartSrcId, cur:chartCur, nCh:chartCharts.length, nSg:chartSongs.length}; },

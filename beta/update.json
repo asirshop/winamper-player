@@ -1,14 +1,15 @@
 {
-  "version": "1.9.0-beta1",
-  "code": 91,
-  "channel": "beta",
-  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.9.0-beta1/winamper-gold-v1.9.0-beta1.apk",
+  "version": "1.9.1",
+  "code": 92,
+  "channel": "stable",
+  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.9.1/winamper-gold-v1.9.1.apk",
   "notes": [
-    "内部结构重构（这一版没有任何功能变化）",
-    "· 把 7300 行的单文件拆成 23 个按职责划分的源码模块，改功能时不用再全文搜索",
-    "· 构建时自动拼回单文件，产物与上一版逐字节一致——外观、播放、歌单、设置全部照旧",
-    "· 新增架构守卫测试：结构完整性、构建可复现、JS 语法、单一版本号来源",
-    "· 为什么值得发：以后修 bug 和加功能更快，也不会改到 A 处弄坏 B 处"
+    "网页版修复：排行榜恢复 + 在线音乐不再「点了不播」",
+    "- 修复：网页版排行榜用不了——两家榜单接口都不给跨域头，原先兜底的公共代理已全部停服；现改由机器人每天抓取、存成同源数据，网页直接读，不再依赖任何第三方代理",
+    "- 修复：网页版在线音乐偶发播不了——接口 503（限流）时代码直接放弃，还转头去等已停服的代理，每次白卡十几秒；现在会自动重试，已死代理也从链路里摘除",
+    "- 顺带：连续切歌不再因为几个卡住的请求把连接池占满（这正是「点哪首都不播」的成因）",
+    "- APP 端榜单仍走原生直连更实时；本地音乐、歌单、音效、外观均不受影响",
+    "- 本版同时包含 1.9.0-beta1 的源码架构重构（拆成 24 个模块，行为与 1.8.22 完全一致）"
   ],
-  "page": "https://asirshop.github.io/winamper-player/beta/"
+  "page": "https://asirshop.github.io/winamper-player/"
 }
