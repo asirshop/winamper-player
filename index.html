@@ -735,6 +735,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .chart-top select{ flex:0 1 auto; min-width:0; font-family:inherit; font-size:12px; padding:4px 6px;
   background:var(--btn-bg); color:var(--txt); border:1px solid var(--chrome-edge); border-radius:5px; }
 .chart-top button{ white-space:nowrap; }
+/* 榜单按钮：跟面板其它按钮同一套质感，并按主题取色（此前漏了 class，用的是浏览器默认白底，
+   在深色皮肤上像一块贴上去的白纸，悬停/按下也没有任何反馈） */
+.chart-btn{ height:30px; padding:0 10px; border-radius:5px; cursor:pointer; font-family:inherit; font-size:12px; font-weight:600;
+  color:var(--txt); background:var(--btn-bg); border:1px solid var(--chrome-edge); white-space:nowrap;
+  box-shadow: inset 0 1px 0 var(--bevel-hi), 0 1px 0 #000; transition: filter .12s ease, opacity .12s ease; }
+.chart-btn:hover{ filter:brightness(1.14); }
+.chart-btn:active{ filter:brightness(.9); box-shadow: 0 2px 4px inset rgba(0,0,0,.4); }
+.chart-btn.primary{ background:linear-gradient(180deg,var(--accent-hi),var(--accent-lo));
+  border-color:var(--accent-edge); color:#fff; }
+.chart-btn:disabled{ cursor:default; opacity:.45; filter:none; box-shadow:none; }
 .chart-tabs{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; max-height:76px; overflow:auto; }
 .chart-tabs button{ font-family:inherit; font-size:11px; font-weight:600; padding:5px 9px; cursor:pointer;
   color:var(--txt); background:var(--btn-bg); border:1px solid var(--chrome-edge); border-radius:5px;
@@ -1459,12 +1469,12 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
           <option value="netease">网易云（官方榜单）</option>
           <option value="kugou">酷狗（官方榜单）</option>
         </select>
-        <button id="btnChartRefresh" title="强制刷新（忽略当天缓存）" style="font-family:inherit;font-size:12px;padding:5px 10px">↻ 刷新</button>
+        <button id="btnChartRefresh" class="chart-btn" title="强制刷新（忽略当天缓存）">↻ 刷新</button>
       </div>
       <div class="chart-tabs" id="chartTabs"></div>
       <div class="chart-tools">
         <span id="chartStatus" class="chart-status"></span>
-        <button id="btnChartAddAll" style="font-family:inherit;font-size:12px;padding:5px 10px" title="把当前榜单全部歌曲加入当前歌单（自动跳过已有）">全部加入歌单</button>
+        <button id="btnChartAddAll" class="chart-btn primary" title="把当前榜单全部歌曲加入当前歌单（自动跳过已有）">全部加入歌单</button>
       </div>
       <div class="chart-list" id="chartList"></div>
       <p class="chart-hint">加入歌单后点歌即可播放：播放器会自动搜索这首歌，接上现有的播放、缓存、歌词链路；重复的歌会自动跳过。</p>
@@ -4725,9 +4735,16 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.15';
-const APP_CODE = 79;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.16';
+const APP_CODE = 80;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.16', code:80, date:'2026-11-07', notes:[
+    '排行榜按钮配色与状态优化',
+    '- 「刷新」「全部加入歌单」此前是浏览器默认白底，现改为跟面板一致的主题样式：「全部加入歌单」为主题色主按钮、「刷新」为常规按钮，悬停/按下都有反馈',
+    '- 榜单没有可用曲目时「全部加入歌单」自动置灰，不再「点了没反应」',
+    '- 点「刷新」后按钮显示「刷新中…」并临时禁用，完成（或失败）后自动恢复',
+    '- 榜单列表取不到时同步清空曲目与按钮状态，避免残留上一份可点击的「全部加入」'
+  ]},
   { v:'1.8.15', code:79, date:'2026-11-07', notes:[
     '新增「排行榜」：权威榜单一键加入歌单',
     '- 第三排新增「排行榜」按键（打开音乐/在线搜索/排行榜/外观/退出 五键一排）',
@@ -6455,6 +6472,17 @@ function chartCachePut(key,data){
   }catch(e){}
 }
 function chartStatus(s){ const el=$('chartStatus'); if(el) el.textContent=s||''; }
+function chartSyncAddAll(){
+  const b=$('btnChartAddAll'); if(!b) return;
+  const n=chartSongs.length;
+  b.disabled=!n;                              /* 没有曲目时置灰：点了也知道是「没内容」而不是「没反应」 */
+  b.title=n?('把当前榜单全部 '+n+' 首加入当前歌单（自动跳过已有）'):'当前榜单还没有可用曲目';
+}
+function chartRefreshBusy(on){
+  const b=$('btnChartRefresh'); if(!b) return;
+  b.disabled=!!on;
+  b.textContent=on?'刷新中…':'↻ 刷新';
+}
 function renderChartTabs(){
   const box=$('chartTabs'); if(!box) return;
   box.innerHTML='';
@@ -6500,7 +6528,14 @@ async function chartLoadCharts(force){
   }
   chartCharts=list;
   renderChartTabs();
-  if(!list.length){ chartStatus('榜单暂时不可用，稍后再试或点「↻ 刷新」重试'); return; }
+  if(!list.length){
+    chartSongs=[];                              /* 列表都没取到：曲目一律作废，别留下上一份的「全部加入」可点 */
+    chartSyncAddAll();
+    const box=$('chartList'); if(box) box.innerHTML='';
+    const sub=$('chartSub'); if(sub) sub.textContent='';
+    chartStatus('榜单暂时不可用，稍后再试或点「↻ 刷新」重试');
+    return;
+  }
   const keep=list.some(function(c){ return c.id===chartCur; });
   chartSelect(keep?chartCur:list[0].id, force);
 }
@@ -6527,6 +6562,7 @@ async function chartSelect(id,force){
   chartStatus(chartSongs.length
     ? '取到 '+chartSongs.length+' 首：点行末「＋」单首加入，或直接「全部加入歌单」'
     : '榜单暂时不可用，稍后再试或点「↻ 刷新」重试');
+  chartSyncAddAll();
 }
 /* 加入当前歌单：去重按「歌名|歌手」；只存元数据，播放时现搜链接（见 loadTrack） */
 function addChartSongs(arr){
@@ -6569,6 +6605,7 @@ function openChart(){
   const mk=$('chartMask'); if(!mk) return;
   mk.classList.add('show');
   try{ mk.querySelector('.modal').scrollTop=0; }catch(e){}
+  chartSyncAddAll();
   if(!chartCharts.length&&!chartLoading) chartLoadCharts();   /* 失败过的榜单，重开弹窗会自动再试一次 */
 }
 let chartLoading=false;
@@ -6578,15 +6615,23 @@ $('chartMask').addEventListener('click',e=>{ if(e.target===$('chartMask')) $('ch
 $('chartSrcSel').addEventListener('change',e=>{
   chartSrcId=e.target.value; chartCur=''; chartSongs=[]; chartReq++;
   $('chartList').innerHTML=''; $('chartSub').textContent='';
-  renderChartTabs();
+  renderChartTabs(); chartSyncAddAll();
   chartLoadCharts();
 });
-$('btnChartRefresh').addEventListener('click',function(){
+$('btnChartRefresh').addEventListener('click',async function(){
+  const b=$('btnChartRefresh');
+  if(b&&b.disabled) return;
   chartCur=''; chartSongs=[]; chartReq++;
-  $('chartList').innerHTML=''; chartSub.textContent='';
-  chartLoadCharts(true);
+  $('chartList').innerHTML=''; $('chartSub').textContent='';
+  chartSyncAddAll();
+  chartRefreshBusy(true);
+  try{ await chartLoadCharts(true); }
+  finally{ chartRefreshBusy(false); }     /* 无论成功失败都恢复：按钮不能一直卡在「刷新中…」 */
 });
-$('btnChartAddAll').addEventListener('click',function(){ addChartSongs(chartSongs); });
+$('btnChartAddAll').addEventListener('click',function(){
+  if(!chartSongs.length){ toast('当前榜单还没有可用曲目','warn'); return; }
+  addChartSongs(chartSongs);
+});
 
 window.__wm={
   $:$, diskKey:diskKey, diskPut:diskPut, diskGet:diskGet, diskClear:diskClear,
