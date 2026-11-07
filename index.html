@@ -2197,8 +2197,9 @@ function applyVolume(instant){
   const g=clamp(state.vol==null?1:state.vol,0,1);
   const graph=usingGraph();
   /* 手机端默认用元素音量；但只要该元素已接入 Web Audio 图（source/sourceO/sourceB），
-     音量就必须交给 gainNode，否则元素音量=1 且 gain=0 时会出现"在播放却没声音" */
-  const elAttachedO=!!(sourceO&&graph);
+     音量就必须交给 gainNode，否则元素音量=1 且 gain=0 时会出现"在播放却没声音"。
+     注意 sourceO 断开后对象仍在，不能只看它存不存在 —— 要用 data-blob 标记确认「此刻真的连着图」。 */
+  const elAttachedO=!!(sourceO&&graph&&audioO.getAttribute('data-blob')==='1');
   const elAttachedA=!!(source&&graph);
   audioO.volume=elAttachedO?1:g;
   audioB.volume=g;                        /* audioB 永不接图 */
@@ -2334,17 +2335,22 @@ function watchCtxState(){
    （用户手势允许 resume）才活过来——这正是「暂停再播放就好了」的原因。
    守卫每 1.5 秒核一次：上下文没跑就拉回、增益与滑块不一致就对齐、元素被悄悄暂停就续播；
    频谱连续全零则重挂输出链，仍不行就自动做一次用户验证有效的「暂停→播放」。 */
-let __guardZero=0, __rearming=false;
+let __guardZero=0, __rearming=false, __guardCtxOut=0, __guardLastT=-1;
 function silentGuard(){
   try{
-    if(!state.playing){ __guardZero=0; return; }
+    if(!state.playing){ __guardZero=0; __guardCtxOut=0; __guardLastT=-1; return; }
     const el=activeEl;
-    if(!el||!el.src){ __guardZero=0; return; }
+    if(!el||!el.src){ __guardZero=0; __guardLastT=-1; return; }
     /* 1) 上下文没在跑：头号原因，持续拉回（一次失败下一轮还会再试） */
     if(actx&&actx.state!=='running'){
       try{ actx.resume().catch(function(){}); }catch(e){}
       applyVolume(true);
+      /* 一直拉不回来：多半是这条 Web Audio 通路已经废了。
+         此时不要反复 reattach（那只会重连一个不工作的图），直接把这首切到原生输出。 */
+      if(++__guardCtxOut>=8){ __guardCtxOut=0; if(el===audioO) rescueToNative(); }
+      return;                      /* 上下文没跑的时候频谱本就是零，这轮不拿它做判据 */
     }
+    __guardCtxOut=0;
     /* 2) 增益被压到 0 或与滑块不一致（切歌淡出没来得及拉回） */
     if(actx&&gainNode){
       const want=clamp(state.vol==null?1:state.vol,0,1);
@@ -2357,13 +2363,17 @@ function silentGuard(){
       try{ el.play().catch(function(){}); }catch(e){}
       return;
     }
-    /* 4) 有数据、进度在走，频谱却持续全零 → 重挂；再不行软重启 */
-    if(el===audioO&&sourceO&&el.readyState>=3){
+    /* 4) 有数据、进度确实在走，频谱却持续全零 → 先重挂，连挂两次无效就换原生输出。
+       用 currentTime 是否前进做闸门，避免间奏/低音量被误判成「链路坏了」。 */
+    const t=el.currentTime||0;
+    const advancing=t>(__guardLastT<0?t-0.01:__guardLastT);
+    __guardLastT=t;
+    if(el===audioO&&sourceO&&el.readyState>=3&&advancing){
       let zero=false;
       try{ zero=!alive(getFreq()); }catch(e){ zero=false; }
       if(zero){
         if(++__guardZero===3) reattachO();
-        else if(__guardZero>6){ __guardZero=0; softRearm(); }
+        else if(__guardZero>=6){ __guardZero=0; if(!rescueToNative()) softRearm(); }
       } else __guardZero=0;
     } else __guardZero=0;
   }catch(e){}
@@ -2515,6 +2525,14 @@ function _L(s){
     if(l==='zh-TW'&&typeof window.__wmS2T==='function') return window.__wmS2T(s);
   }catch(e){}
   return s;
+}
+/* 给可能永久挂起的异步操作套一个上限：IndexedDB 在个别 WebView 上会静默卡死，
+   一旦 await 永不返回，这首歌不播、后面每首也都卡在同一行。宁可跳过缓存直接走网络。 */
+function withTimeout(p, ms, fallback){
+  return Promise.race([
+    Promise.resolve(p).catch(function(){ return fallback; }),
+    new Promise(function(r){ setTimeout(function(){ r(fallback); }, ms); })
+  ]);
 }
 /* 异步读：先热层，再 IndexedDB。命中后回填热层 */
 async function diskGet(key,urlForHot){
@@ -2770,7 +2788,14 @@ function drawSpectrum(){
   const hasDW=!!useW;
   if(hasF||hasW||synthE>0.05){ spFade=Math.min(1,spFade+0.05); } else if(!state.playing){ spFade=Math.max(0,spFade-0.08); }
   c.style.opacity=(0.45+0.55*spFade).toFixed(3);
-  if(activeEl===audioO&&state.playing&&!hasF&&!hasW){ if(blobReady){ if(++specDead>30) adoptBlob(); } else if(audioO.getAttribute('data-blob')&&audioO.readyState>=2&&audioO.currentTime>0){ if(++specDead>45){ specDead=0; reattachO(); } } } else specDead=0;
+  /* 频谱全零只在「真在播、上下文也在跑」时才算异常；阈值放宽到约 3 秒，
+     否则间奏、弱起小节这种正常的低频段就会被误判，进而频繁重连音频链。 */
+  if(activeEl===audioO&&state.playing&&!hasF&&!hasW){
+    if(blobReady){ if(++specDead>30) adoptBlob(); }
+    else if(audioO.getAttribute('data-blob')&&audioO.readyState>=2&&audioO.currentTime>0&&!audioO.paused&&actx&&actx.state==='running'){
+      if(++specDead>180){ specDead=0; reattachO(); }
+    }
+  } else specDead=0;
   const idle=(i,sp)=>0.10+0.07*Math.abs(Math.sin(t*1.7+i*sp));
   /* ---- 霓虹：彩虹渐变柱 + 辉光 + 峰值帽 + 底部倒影 ---- */
   if(spMode==='neon'){
@@ -3306,24 +3331,78 @@ try{ btReady(); }catch(e){}
 /* ---- 网络歌曲：先原生出声(任何引擎) + 后台取同源blob到手即热切出频谱；桌面保留原CORS流式路径 ---- */
 const isMobile = /Android|iPhone|iPad|iPod|Windows Phone|Symbian|Mobile|SogouMobileBrowser|MQQBrowser|QQBrowser|MicroMessenger|HarmonyOS|MiuiBrowser/i.test(navigator.userAgent) || (('ontouchstart' in window) && window.innerWidth<900);
 let sourceO=null, sourceB=null, opStage=0, opSrc='';
+/* 把「滤波器组 → 增益 → 分析器 → 扬声器」这条后级链重新串一遍。
+   幂等：重复调用只是重连，不会产生副作用的节点。 */
+function rebuildFxChain(){
+  if(!actx||!filters.length||!gainNode||!analyser) return false;
+  try{
+    for(const f of filters){ try{ f.disconnect(); }catch(e){} }
+    try{ gainNode.disconnect(); }catch(e){}
+    try{ analyser.disconnect(); }catch(e){}
+    for(let i=0;i<filters.length-1;i++) filters[i].connect(filters[i+1]);
+    filters[filters.length-1].connect(gainNode);
+    gainNode.connect(analyser);
+    analyser.connect(actx.destination);
+    return true;
+  }catch(e){ return false; }
+}
 function ensureOAttached(){
-  /* 仅当 audioO 正在播放同源 blob 时才接入 Web Audio，避免污染流被静音 */
+  /* 只有正在播「同源 blob」才接入 Web Audio。
+     ★ 这道闸门至关重要：网络流大多是跨域且没带 crossorigin 的「不透明」资源，
+       一旦被 createMediaElementSource 接管，浏览器按 CORS 规定直接输出静音 ——
+       进度条照走、界面照常，就是没声音，而且这个元素再也回不到原生输出。
+       以前只看调用时机（热切前就接了），等于每次缓存完成都把声音掐一次。 */
+  if(audioO.getAttribute('data-blob')!=='1') return;
   try{ ensureCtx(); }catch(e){ return; }
   if(!actx || !filters.length) return;
-  if(!sourceO){ try{ sourceO=actx.createMediaElementSource(audioO); sourceO.connect(filters[0]); }catch(e){ sourceO=null; return; } }
+  if(!sourceO){
+    /* create 与 connect 必须分开 try：create 成功而 connect 抛错时若把 sourceO 置空，
+       这个元素就永远接不回图了（第二次 create 必抛 InvalidStateError）。 */
+    try{ sourceO=actx.createMediaElementSource(audioO); }catch(e){ sourceO=null; return; }
+  }
+  try{ sourceO.disconnect(); }catch(e){}
+  try{ sourceO.connect(filters[0]); }catch(e){ return; }
+  rebuildFxChain();
   audioO.volume=1; applyVolume(true);
   if(actx.state==='suspended'){ try{actx.resume();}catch(e){} }
 }
 function reattachO(){
-  /* 自检重连：链已挂但 analyser 仍无数据（多为移动端 AudioContext 在异步回调里 resume 失败/被挂起） */
+  /* 自检重连：链已挂但 analyser 仍无数据（多为移动端 AudioContext 在异步回调里 resume 失败/被挂起）。
+     ★ 绝对不能再 createMediaElementSource：同一个元素第二次调用必然抛 InvalidStateError，
+       而旧实现在之前已经 disconnect 掉了唯一通路 —— 等于把声音彻底掐死且无从恢复。
+       这正是「进度条在走、界面正常、就是没声音，切哪首都一样」的根因。 */
   if(activeEl!==audioO) return;
   try{ ensureCtx(); }catch(e){ return; }
   if(!actx || !filters.length) return;
-  if(sourceO){ try{ sourceO.disconnect(); }catch(e){} sourceO=null; }
-  try{ sourceO=actx.createMediaElementSource(audioO); sourceO.connect(filters[0]); }catch(e){ sourceO=null; return; }
+  if(!sourceO){
+    try{ sourceO=actx.createMediaElementSource(audioO); }catch(e){ sourceO=null; }
+  }
+  try{ sourceO.disconnect(); }catch(e){}
+  try{ sourceO.connect(filters[0]); }catch(e){}
+  rebuildFxChain();
   applyVolume(true); specDead=0;
   if(actx.state!=='running'){ try{ actx.resume().then(function(){ applyVolume(true); try{ audioO.play().catch(function(){}); }catch(e){} }).catch(function(){}); }catch(e){} }
   try{ audioO.play().catch(function(){}); }catch(e){}
+}
+let __rescued=false;
+/* 终极兜底：Web Audio 图彻底救不回来时，把这一首换到 audioB 上原生出声。
+   audioB 从不接入 Web Audio，所以它一定走系统输出 —— 宁可少个频谱，也不能没声音。 */
+function rescueToNative(){
+  if(__rescued || activeEl!==audioO) return false;
+  const src=audioO.currentSrc||audioO.src;
+  if(!src) return false;
+  __rescued=true;
+  const t=audioO.currentTime||0, wasPlaying=state.playing;
+  try{ audioO.pause(); }catch(e){}
+  try{ audioB.removeAttribute('crossorigin'); audioB.src=src; }catch(e){ return false; }
+  setActive(audioB);
+  audioB.addEventListener('loadedmetadata',function h(){
+    audioB.removeEventListener('loadedmetadata',h);
+    try{ audioB.currentTime=t; }catch(e){}
+    if(wasPlaying) play();
+  },{once:true});
+  if(wasPlaying) play();
+  return true;
 }
 function attachB(){ /* 兜底元素保持原生出声，绝不接入 Web Audio，杜绝污染流反而静音 */ }
 const BLOB_PROXIES=[
@@ -3342,6 +3421,25 @@ function adoptDecision(el, playing){
   if(playing && (el.readyState||0)<3) return {ok:false, pos:0};
   return {ok:true, pos:Math.max(0, el.currentTime||0)};
 }
+function blobSwitch(el, url, pos, wasPlaying){
+  /* 换源到本地文件：加载成功就原位续播。
+     ★ 必须带超时兜底 —— 旧实现只等 loadedmetadata，事件一旦不来（blob 解码失败、
+       元素被系统挂起、换源时机撞上正在进行的加载），这首歌就永远停在「有信息、没声音」，
+       而且 blobReady 已被消费掉，后面切哪首都救不回来。 */
+  let done=false;
+  const finish=function(){
+    if(done) return; done=true;
+    /* 标记「当前确实是同源 blob」之后才允许接入 Web Audio —— 顺序不能反：
+       换源之前进来的还是跨域网络流，此刻接入会被 CORS 判为不可读而静音。 */
+    try{ el.setAttribute('data-blob','1'); }catch(e){}
+    try{ el.currentTime=pos; }catch(e){}
+    if(wasPlaying){ try{ el.play().catch(function(){}); }catch(e){} }
+    if(el===audioO) ensureOAttached();
+  };
+  el.addEventListener('loadedmetadata',function h(){ el.removeEventListener('loadedmetadata',h); finish(); },{once:true});
+  setTimeout(function(){ if(!done && el===activeEl) finish(); },2500);   /* 兜底：照原位置播，不让它僵住 */
+  try{ el.src=url; }catch(e){}
+}
 function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱链路 */
   if(!blobReady || blobTarget!==opSrc || activeEl!==audioO) return;
   const b=blobReady; blobReady=null;
@@ -3352,12 +3450,11 @@ function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱
   state.cur=tt;
   if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} }
   lastBlob=URL.createObjectURL(b);
-  audioO.setAttribute('data-blob','1');
+  audioO.removeAttribute('data-blob');     /* 先摘标记：换源成功前不进 Web Audio */
   audioO.removeAttribute('crossorigin');
-  ensureOAttached();
-  audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); try{ audioO.currentTime=tt; }catch(e){} if(wasPlaying){ try{audioO.play();}catch(e){} } ensureOAttached(); },{once:true});
-  audioO.src=lastBlob;
+  blobSwitch(audioO, lastBlob, tt, wasPlaying);
   specDead=0;
+  __rescued=false;
 }
 /* SECTION: blob 预取（并发 1、可取消、代理健康度）
    旧实现每切一首就开一个任务、每个任务串行试 1 个原址 + 5 个代理 × 9s 超时，
@@ -3406,9 +3503,16 @@ async function fetchAudioStreamLazy(u, signal, onProg, isLive){
     }
     if(state.playing){                           /* 只在真正出声时才让路；暂停/未播时全速下缓存 */
       if(playbackStarved()){
-        /* 播放要断粮了：等它缓过来，最多等 3 秒，避免死锁 */
+        /* 播放要断粮了：先等它缓过来，但最多等 2 秒。
+           等不到就放弃这一轮缓存 —— 继续等下去是死锁：fetch 已经占着连接，
+           播放永远等不到数据，表现就是「点了不播、切哪首都不播」。
+           放弃后带宽全给播放，缓存下次重听时再下。 */
         let waited=0;
-        while(playbackStarved() && waited<3000 && !signal.aborted){ await sleepMs(150); waited+=150; }
+        while(playbackStarved() && waited<2000 && !signal.aborted){ await sleepMs(150); waited+=150; }
+        if(playbackStarved() && !signal.aborted){
+          try{ reader.cancel(); }catch(e){}
+          throw new Error('yield-to-playback');
+        }
       }else{
         const el=activeEl;
         if(el && el.buffered && el.buffered.length && typeof el.buffered.end==='function'){
@@ -3503,14 +3607,12 @@ function startOnlineBlob(url, tr, blob){
   try{
     if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} lastBlob=null; }
     lastBlob=URL.createObjectURL(blob);
-    audioO.setAttribute('data-blob','1');
+    audioO.removeAttribute('data-blob');     /* 先摘标记：换源成功前不进 Web Audio */
     audioO.removeAttribute('crossorigin');
-    /* 与 adoptBlob 同款挂接：先接频谱链路，loadedmetadata 后再接一次（部分机型首次会掉链） */
-    ensureOAttached();
-    audioO.addEventListener('loadedmetadata',function h(){ audioO.removeEventListener('loadedmetadata',h); ensureOAttached(); },{once:true});
-    audioO.src=lastBlob;
     setActive(audioO);
-    spFade=0; specDead=0;
+    /* 与 adoptBlob 共用同一套「换源 + 超时兜底」，加载成功后才接入频谱链路 */
+    blobSwitch(audioO, lastBlob, 0, true);
+    spFade=0; specDead=0; __rescued=false;
   }catch(e){ startOnline(url, tr); }
 }
 /* v1.8.4：立刻出声（边下边播），后台缓存给播放让路；
@@ -3518,6 +3620,11 @@ function startOnlineBlob(url, tr, blob){
 function startOnline(url, tr){
   opStage=0; opSrc=url;
   audioO.removeAttribute('data-blob');
+  /* ★ 切回流式网络流时，必须把元素从 Web Audio 图里摘出来。
+     否则一旦它曾在 blob 阶段被接入过，图就一直挂着：网络流是跨域不透明资源，
+     被 Web Audio 接管后浏览器按 CORS 直接输出静音 —— 进度条照走、界面正常、就是没声，
+     而且之后切哪首都没声，直到重启。这是一整轮「连续切歌后假死」的元凶。 */
+  if(sourceO){ try{ sourceO.disconnect(); }catch(e){} }
   if(isMobile){
     audioO.removeAttribute('crossorigin');      // 手机：原生出声保命，频谱靠后台同源blob到手后热切
   }else{
@@ -3533,6 +3640,7 @@ async function loadTrack(idx){
   if(!pl||!pl.tracks.length) return;
   idx=clamp(idx,0,pl.tracks.length-1);
   state.track=idx;
+  __rescued=false;                             /* 换歌：允许这套保护重新介入一次 */
   audEl=null; audPos=0;                        /* 换歌：可听进度从零开始，别拿上一首的基线 */
   const tr=pl.tracks[idx];
   cancelPrefetch();                            /* 切歌先掐掉上一首的在途预取，避免请求叠积 */
@@ -3540,6 +3648,10 @@ async function loadTrack(idx){
   if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} lastBlob=null; }
   if(localObjUrl){ try{ URL.revokeObjectURL(localObjUrl); }catch(e){} localObjUrl=null; }   /* 本地文件的 objectURL 以前从不释放，切歌越多泄漏越多 */
   audio.pause(); audioO.pause(); audioB.pause();
+  state.playing=false;         /* 元素已全部停下，语义上就是没在播；否则缓存下载会把「切歌瞬间的空缓冲」误判成播放断粮 */
+  /* 换歌先把它从音频图里摘出来：残留的连接会让下一首（网络流）被 CORS 判为不可读而静音 */
+  if(sourceO){ try{ sourceO.disconnect(); }catch(e){} }
+  audioO.removeAttribute('data-blob');
   audio.removeAttribute('src'); audioO.removeAttribute('src'); audioB.removeAttribute('src');
   if(tr.kind==='local'&&tr.file){ localObjUrl=URL.createObjectURL(tr.file); audio.src=localObjUrl; setActive(audio); }
   else{
@@ -3547,13 +3659,17 @@ async function loadTrack(idx){
       /* 榜单加入的歌只有「歌名+歌手」：第一次播放前先按名搜索补全链接（v1.8.15） */
       const okName=await resolveTrackByName(tr);
       if(state.track!==idx) return;              /* 等待搜索期间用户已切歌 */
-      if(!okName) return;                        /* 没搜到：提示已弹，不往下走 */
+      if(!okName){                               /* 没搜到：提示已弹，别留一个「信息已显示、播放没起来」的半死状态 */
+        state.playing=false;
+        try{ setIcon(false); updateDisplay(); }catch(e){}
+        return;
+      }
     }
     let url=tr.url||'';
     /* ★ 先看本地缓存：命中就直接出声，不问接口要链接、不花一分流量 */
     const dk=diskKey(tr, effQuality());
     if(dk){
-      const disk=await diskGet(dk, tr.url||'');
+      const disk=await withTimeout(diskGet(dk, tr.url||''), 1200, null);
       if(disk&&looksLikeAudio(disk)){
         if(state.track!==idx){ if(state.track>=0) return; }
         tr.__blob=disk; holdBlob(tr);
@@ -3565,7 +3681,11 @@ async function loadTrack(idx){
     }
     // 在线歌播放链接有时效，按所选音质重新获取新链接再播；取不到该码率则回退默认并提示
     if(tr.meta&&tr.meta.id){
-      const r=await resolveOnlineUrl(tr); if(r.url){ url=r.url; }
+      /* 整体 12 秒上限 + 已切歌即收手：接口全挂时也不能让这一首无限期挂着 */
+      const r=await withTimeout(
+        resolveOnlineUrl(tr, function(){ return state.track!==idx; }),
+        12000, {url:url, hit:true});
+      if(r&&r.url){ url=r.url; }
       const qs=$('qualitySel'); if(!r.hit&&state.quality&&state.quality!=='auto'){ toast('无此音质源，正使用默认音质','warn'); if(qs) qs.classList.add('q-warn'); } else if(qs){ qs.classList.remove('q-warn'); }
       if(state.track!==idx) return;
     }
@@ -4345,7 +4465,7 @@ async function downloadTrack(tr){
   toast('正在获取音频…');
   let url=tr.url||'';
   try{
-    if(tr.meta&&tr.meta.id){ const r=await resolveOnlineUrl(tr); if(r.url) url=r.url; }
+    if(tr.meta&&tr.meta.id){ const r=await withTimeout(resolveOnlineUrl(tr), 12000, {url:url,hit:true}); if(r&&r.url) url=r.url; }
   }catch(e){}
   const b=await fetchAudioBlob(url, function(k,n){ if(k>0) toast('直连不通，正在换第 '+k+' 个通道（共 '+(n-1)+' 个）…'); });
   if(!b){
@@ -4808,9 +4928,18 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.17';
-const APP_CODE = 81;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.18';
+const APP_CODE = 82;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.18', code:82, date:'2026-11-07', notes:[
+    '- 修复：连续点几首在线歌后彻底没声音，界面与封面都正常，之后切哪首都不播',
+    '- 根因一：第一首缓存完成后切到了本地播放，声音被接到音频处理链上；切下一首改回网络流时这条链没断开，跨域网络流被浏览器按跨域规则判为不可读，直接输出静音',
+    '- 根因二：自愈代码试图重建音频链，但同一个播放元素只能接入一次，重建必然失败且先把唯一通路断开，等于把声音彻底掐死、无法恢复',
+    '- 根因三：切换到本地文件时只等一个「加载完成」事件，事件不来就永远僵住，后面切什么都救不回',
+    '- 根因四：解析播放链接时逐源重试没有时间上限，也不理会「用户已切歌」，连点几首就叠出一串慢请求，把带宽和连接数吃光',
+    '- 对策：网络流一律不进音频处理链（只有本地文件才接）、换源与切歌都先摘链、所有等待都加超时与回退',
+    '- 兜底：万一链路确实救不回来，自动改用原生输出续播同一首——宁可少个频谱动画，也不能没声音'
+  ]},
   { v:'1.8.17', code:81, date:'2026-11-07', notes:[
     '修复连续切歌几次后「进度在走但没声音」',
     '- 现象：连续快速切歌后，进度条照常前进却完全没声音；点一下暂停再播放，缓存完就恢复',
@@ -5699,7 +5828,11 @@ async function apiJson(url){
   try{ const c=new AbortController(); const t=setTimeout(function(){c.abort();},9000);
     const r=await fetch(url,{mode:'cors',signal:c.signal}); clearTimeout(t);
     if(r.ok){ const j=await r.json(); if(j) return j; } }catch(e){}
-  try{ const r=await fetch(PROXY+encodeURIComponent(url),{mode:'cors'}); if(r.ok) return await r.json(); }catch(e){}
+  /* 代理这条也要有上限：公共代理挂了会一直挂着不回，切歌时几首叠在一起就把连接池占满，
+     正在播的那首也跟着抢不到带宽 —— 表现为「点了没反应，切哪首都不播」。 */
+  try{ const c2=new AbortController(); const t2=setTimeout(function(){c2.abort();},4000);
+    const r=await fetch(PROXY+encodeURIComponent(url),{mode:'cors',signal:c2.signal}); clearTimeout(t2);
+    if(r.ok) return await r.json(); }catch(e){}
   return null;
 }
 
@@ -5860,11 +5993,14 @@ const QUALITY_MAP={ auto:'', '128':'128', '192':'192', '320':'320', sq:'lossless
 function netQuality(){ try{ const c=navigator.connection; if(c){ const et=(c.effectiveType||'').toLowerCase(); if(c.saveData) return '128'; if(/2g|3g/.test(et)) return '128'; if(et==='4g') return '320'; } }catch(e){} return '320'; }
 function effQuality(){ return (state.quality&&state.quality!=='auto')?state.quality:netQuality(); }
 async function gdPlayQ(id,q){ const r=await srcPlay(curSrc(),id,q); return r?r.url:null; }
-async function resolveOnlineUrl(tr){
+async function resolveOnlineUrl(tr, cancelled){
   const id=tr&&tr.meta&&tr.meta.id; const want=effQuality(); const url0=(tr&&tr.url)||'';
   if(!id) return {url:url0, hit:true};
   const order=orderedSources();
   for(let i=0;i<order.length;i++){
+    /* 用户已经切到别的歌：立刻收手，别再往后面的源发请求。
+       旧实现不管这个，连点五首就有五条链同时在试源，请求叠积把带宽和连接池吃光。 */
+    if(cancelled && cancelled()) return {url:url0, hit:true};
     const s=order[i];
     try{
       const r=await srcPlay(s,id,want);
@@ -6669,7 +6805,7 @@ async function resolveTrackByName(tr){
   const kw=(tr.name||'')+(tr.art?' '+tr.art:'');
   if(!kw.trim()) return false;
   let list=[];
-  try{ list=await gdSearch(kw)||[]; }catch(e){}
+  try{ list=await withTimeout(gdSearch(kw), 6000, []) || []; }catch(e){}
   if(!list.length){ toast('没找到「'+(tr.name||'')+'」的可播资源','err'); return false; }
   const norm=s=>String(s||'').replace(/[（(【\[].*$/,'').replace(/[\s·\-_~]/g,'').toLowerCase();
   const base=norm(tr.name);
@@ -6718,6 +6854,7 @@ window.__wm={
   $:$, diskKey:diskKey, diskPut:diskPut, diskGet:diskGet, diskClear:diskClear,
   diskStat:diskStat, diskLimitBytes:diskLimitBytes, diskEvictOldest:diskEvictOldest,
   renderCacheUI:renderCacheUI, loadTrack:loadTrack, cacheGet:cacheGet, cachePut:cachePut,
+  resolveOnlineUrlForTest:resolveOnlineUrl, withTimeout:withTimeout,
   get state(){ return state; }, get store(){ return store; }, get audioO(){ return audioO; },
   get opStage(){ return opStage; }, renderPl:renderPl,
   openRowMenu:openRowMenu, closeRowMenu:closeRowMenu,
@@ -6733,8 +6870,14 @@ window.__wm={
   __chartCacheClear:function(){ try{ localStorage.removeItem(CHART_KEY); }catch(e){} },
   /* 仅供测试：静音守卫（v1.8.17） */
   __silentGuard:silentGuard, softRearm:softRearm,
-  __setActiveEl:function(el){ activeEl=el; },
+  __reattachO:reattachO, __ensureOAttached:ensureOAttached,
+  __rescueToNative:rescueToNative, __blobSwitch:blobSwitch, __rebuildFxChain:rebuildFxChain,
+  __startOnlineForTest:startOnline,
+  get sourceO(){ return sourceO; }, get audioB(){ return audioB; },
+  get activeEl(){ return activeEl; },
   get actx(){ return actx; }, get gainNode(){ return gainNode; },
+  get filters(){ return filters; },
+  __setActiveEl:function(el){ activeEl=el; },
   saveStore:saveStore, loadStore:loadStore, flushSave:flushSave,
   get plistsRaw(){ return plists(); },
   get diskOk(){ return diskOk; }
