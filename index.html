@@ -3332,8 +3332,15 @@ function play(){
       .catch(()=>{
         /* 快速连切时 play() 常被「新的加载请求」打断（AbortError），不是文件坏了：
            400ms 后再试一次，别第一次失败就报错，也别留下「在走但没声」的半死状态 */
-        if(tried<2){ setTimeout(function(){ if(activeEl&&activeEl.src) attempt(); },400); }
-        else toast('播放失败，可能是文件不可用','err');
+        if(tried<2){ setTimeout(function(){ if(activeEl&&activeEl.src) attempt(); },400); return; }
+        /* v1.9.5：网络流起不来、但缓存还在下 —— 这不是「文件不可用」，别误报。
+           转入「缓存完自动播」，省得用户连点几次还以为歌废了。 */
+        if(typeof cacheUrl!=='undefined' && cacheUrl && activeEl===audioB){
+          pendingAutoPlay=true;
+          toast('网络较慢，正在缓存这首，完成后会自动播放','warn');
+          return;
+        }
+        toast('播放失败，可能是文件不可用','err');
       });
   })();
 }
@@ -3459,6 +3466,17 @@ function ensureOAttached(){
   rebuildFxChain();
   audioO.volume=1; applyVolume(true);
   if(actx.state==='suspended'){ try{actx.resume();}catch(e){} }
+  /* 自检：图接上了、引擎却没跑起来（手机 WebView 里 resume 被自动播放策略拒绝是常态：
+     缓存是在后台异步完成的，那一刻早就不在用户手势里了）。等于接了一个不出声的图，
+     而 currentTime 照走、锁屏进度照走 —— 正是「在播、没声、进度 0」那一类怪象。
+     1.5 秒还没 running，就把这份 blob 交给 audioB 原生出声，宁可少个频谱。 */
+  const mine=audioO, seq=blobSeq;
+  setTimeout(function(){
+    if(seq!==blobSeq || activeEl!==mine) return;
+    if(mine.getAttribute('data-blob')!=='1' || !state.playing) return;
+    if(actx && actx.state==='running') return;
+    fallbackToStream('音频引擎未就绪，已切换原生播放以保证出声');
+  },1500);
 }
 function reattachO(){
   /* 自检重连：链已挂但 analyser 仍无数据（多为移动端 AudioContext 在异步回调里 resume 失败/被挂起）。
@@ -3509,11 +3527,11 @@ function attachB(){ /* 兜底元素保持原生出声，绝不接入 Web Audio�
 const BLOB_PROXIES=[];
 /* 缓存到手后是否切到本地文件、切过去从哪一秒接上（纯函数，便于自动测试）
    原则：位置用 currentTime 原位接上，绝不往回退（回退等于重听一段，比断一下更明显）。
-   只有一种情况不切：此刻正卡着没数据（readyState<3），说明流式这边本就供不上，
-   切过去要重新缓冲一次、更卡。这一轮让它流式播完，缓存已落盘，下次从头秒开。 */
+   v1.9.5：网络流卡着（readyState<3）时更要切 —— 手上的 blob 是完整本地文件，
+   切过去必然能播；以前「卡着就不切」等于把唯一能救命的完整文件晾在一边，
+   于是那首就一直停在「有信息、进度 0、没声音」。 */
 function adoptDecision(el, playing){
   if(!el) return {ok:false, pos:0};
-  if(playing && (el.readyState||0)<3) return {ok:false, pos:0};
   return {ok:true, pos:Math.max(0, el.currentTime||0)};
 }
 let blobSeq=0;                 /* 每次换源自增：过期的回调不许再动当前这首 */
@@ -3537,16 +3555,16 @@ function blobSwitch(el, url, pos, wasPlaying){
     if(el===audioO) ensureOAttached();
   };
   el.addEventListener('loadedmetadata',function h(){ el.removeEventListener('loadedmetadata',h); finish(); },{once:true});
+  /* 第一级：2.5 秒只判「真失败」（浏览器明确放弃该文件）。
+     只是读得慢（低端机读十几兆 blob 常见）就继续等，绝不再强行 finish ——
+     旧版在这里无条件 finish，等于把元素钉在「元数据还没来」的状态上：
+     界面显示播放中、进度 0、没声音，正是用户报的那个现象。 */
   setTimeout(function(){
     if(done) return;
     if(seq!==blobSeq || el!==activeEl){ done=true; return; }
-    /* 判「真失败」而不是「还没读完」：networkState===3（NO_SOURCE）或已报错，
-       才是这个 blob 放不了；只是 readyState 还没上来（低端机读大 blob 慢）就继续等，
-       以前按 readyState<1 就回退，慢设备上会误判成失败、把刚缓存的歌报成「无法播放」。 */
     const dead=!!el.error || el.networkState===3;
     if(dead && (el.readyState||0)<1){
       done=true;
-      /* 只有在手上有可用的网络地址时才退回流式，否则宁可留在 blob 上等浏览器报错 */
       if(opSrc && opSrc!==url && opSrc!==el.src){
         try{ el.removeAttribute('data-blob'); el.src=opSrc; if(wasPlaying) el.play().catch(function(){}); }catch(e){}
       }else{
@@ -3554,22 +3572,64 @@ function blobSwitch(el, url, pos, wasPlaying){
       }
       return;
     }
-    finish();
   },2500);
+  /* 第二级：8 秒硬上限。既没报错也读不出任何数据，说明这个 blob 在本机就是放不了
+     （半截文件、编码不支持、WebView 解码器异常），必须有尽头，不能永远停在进度 0。 */
+  setTimeout(function(){
+    if(done) return;
+    if(seq!==blobSeq || el!==activeEl){ done=true; return; }
+    if((el.readyState||0)<1){
+      done=true;
+      if(el===audioO && opSrc && opSrc!==url) fallbackToStream('音频加载超时，已自动切回在线播放');
+      else { try{ el.removeAttribute('data-blob'); }catch(e){} }
+      return;
+    }
+    finish();
+  },8000);
   try{ el.src=url; }catch(e){}
 }
+/* 同源 blob 这条路走不通时，把「当前这个地址」原样交给 audioB 原生播放。
+   audioB 永不接 Web Audio，所以任何来源都一定出声，代价只是没有真实频谱。
+   两处会用到：① blob 播到一半卡死；② 音频引擎（AudioContext）起不来。 */
+function fallbackToStream(msg){
+  if(activeEl!==audioO) return false;
+  const t=audioO.currentTime||state.cur||0;
+  const src=audioO.currentSrc||audioO.src||opSrc;
+  if(!src) return false;
+  const was=state.playing;
+  try{ audioO.pause(); }catch(e){}
+  audioO.removeAttribute('data-blob');
+  setActive(audioB);
+  audioB.removeAttribute('crossorigin');
+  try{ audioB.src=src; }catch(e){ return false; }
+  audioB.addEventListener('loadedmetadata',function h(){
+    audioB.removeEventListener('loadedmetadata',h);
+    try{ if(t>0.3) audioB.currentTime=t; }catch(e){}
+  },{once:true});
+  if(was) play();
+  if(msg) toast(msg,'warn');
+  return true;
+}
+let pendingAutoPlay=false;      /* 「用户在等这首」：为缓存让路时停播，缓存完成后要自动接上 */
 function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱链路 */
-  if(!blobReady || blobTarget!==opSrc || activeEl!==audioO) return;
+  if(!blobReady || blobTarget!==opSrc) return;
+  if(activeEl===audioO && audioO.getAttribute('data-blob')==='1') return;   /* 已经是 blob 在播 */
+  if(activeEl!==audioB && activeEl!==audioO) return;
   const b=blobReady; blobReady=null;
-  const d=adoptDecision(audioO, state.playing);
-  if(!d.ok) return;                    /* 正卡着：这轮不切，缓存已落盘供下次播 */
-  const wasPlaying=state.playing;
+  const d=adoptDecision(audioB, state.playing);
+  if(!d.ok) return;
+  const wasPlaying=state.playing || pendingAutoPlay;
+  pendingAutoPlay=false;
   const tt=d.pos;
   state.cur=tt;
   if(lastBlob){ try{ URL.revokeObjectURL(lastBlob); }catch(e){} }
   lastBlob=URL.createObjectURL(b);
+  /* 先把「当前元素」指到 audioO，再停 audioB —— 顺序反了会触发 audioB 的 pause 事件，
+     把 state.playing 打成 false，界面在切源瞬间闪一下「已暂停」。 */
   audioO.removeAttribute('data-blob');     /* 先摘标记：换源成功前不进 Web Audio */
   audioO.removeAttribute('crossorigin');
+  setActive(audioO);
+  try{ audioB.pause(); }catch(e){}
   blobSwitch(audioO, lastBlob, tt, wasPlaying);
   specDead=0;
   __rescued=false;
@@ -3747,6 +3807,8 @@ function startOnlineBlob(url, tr, blob){
     audioO.removeAttribute('data-blob');     /* 先摘标记：换源成功前不进 Web Audio */
     audioO.removeAttribute('crossorigin');
     setActive(audioO);
+    try{ audioB.pause(); }catch(e){}
+    pendingAutoPlay=false;
     /* 与 adoptBlob 共用同一套「换源 + 超时兜底」，加载成功后才接入频谱链路 */
     blobSwitch(audioO, lastBlob, 0, true);
     spFade=0; specDead=0; __rescued=false;
@@ -3756,19 +3818,23 @@ function startOnlineBlob(url, tr, blob){
    缓存到手后由 adoptBlob 做无缝热切，位置不可信时宁可不切。 */
 function startOnline(url, tr){
   opStage=0; opSrc=url;
+  pendingAutoPlay=false;
+  /* ★ v1.9.5：网络流改由 audioB 承担，audioO 专用于同源 blob。
+     原因是一个 Web Audio 的硬规则：元素一旦被 createMediaElementSource 接管过，
+     就永久绑在图上 —— 跨域流经它必然静音（CORS 不透明），把图断开则彻底没有输出。
+     以前「切歌时 disconnect」看似摘干净了，实际留下的是一段时间内所有网络流全哑，
+     表现就是「显示播放中、进度 0、没声音，切走再切回来才好」。
+     现在两类音源彻底分家：audioB 只播网络流（永不接图，任何来源都出声），
+     audioO 只播同源 blob（接图、出真实频谱），互不污染。 */
+  setActive(audioB);
+  try{ audioO.pause(); }catch(e){}
   audioO.removeAttribute('data-blob');
-  /* ★ 切回流式网络流时，必须把元素从 Web Audio 图里摘出来。
-     否则一旦它曾在 blob 阶段被接入过，图就一直挂着：网络流是跨域不透明资源，
-     被 Web Audio 接管后浏览器按 CORS 直接输出静音 —— 进度条照走、界面正常、就是没声，
-     而且之后切哪首都没声，直到重启。这是一整轮「连续切歌后假死」的元凶。 */
-  if(sourceO){ try{ sourceO.disconnect(); }catch(e){} }
   /* v1.9.2：不再设 crossorigin。
-     元素在 blob 到手前不接 Web Audio，根本用不上 CORS；
+     元素不接 Web Audio，根本用不上 CORS；
      而设了它，遇到「不回 ACAO 的 CDN」反而会连加载都失败，
      表现就是点了歌一直转圈、进不了播放状态。 */
-  audioO.removeAttribute('crossorigin');
-  setActive(audioO);
-  audioO.src=url;
+  audioB.removeAttribute('crossorigin');
+  audioB.src=url;
   spFade=0; applyVolume(true);                   // 音量从第一帧就按滑块生效，不再先最大声
   primeBlob(url, tr);
 }
@@ -3786,8 +3852,10 @@ async function loadTrack(idx){
   if(localObjUrl){ try{ URL.revokeObjectURL(localObjUrl); }catch(e){} localObjUrl=null; }   /* 本地文件的 objectURL 以前从不释放，切歌越多泄漏越多 */
   audio.pause(); audioO.pause(); audioB.pause();
   state.playing=false;         /* 元素已全部停下，语义上就是没在播；否则缓存下载会把「切歌瞬间的空缓冲」误判成播放断粮 */
-  /* 换歌先把它从音频图里摘出来：残留的连接会让下一首（网络流）被 CORS 判为不可读而静音 */
-  if(sourceO){ try{ sourceO.disconnect(); }catch(e){} }
+  pendingAutoPlay=false;
+  /* v1.9.5：不再 disconnect audioO 的音频图 —— 元素被接管过就永久绑在图上，
+     断开后它再也没有任何输出。网络流已改由 audioB 承担，audioO 只在播同源 blob 时发声，
+     保持图连通既安全又省掉每次重建（重建期间还会丢几帧频谱）。 */
   audioO.removeAttribute('data-blob');
   audio.removeAttribute('src'); audioO.removeAttribute('src'); audioB.removeAttribute('src');
   if(tr.kind==='local'&&tr.file){ localObjUrl=URL.createObjectURL(tr.file); audio.src=localObjUrl; setActive(audio); }
@@ -3951,15 +4019,18 @@ function bindAudio(el){
     const t=el.currentTime||0;
     /* readyState>=3 表示后头还有不间断的数据、声音是真在出的；
        低于 3 说明在饿缓冲，此时不让进度往前走（否则慢网会「假装」播过去）。
-       暂停状态下 currentTime 是用户主动定位的结果，照常采用。 */
-    const healthy=(el.readyState>=3)||!state.playing;
+       暂停状态下 currentTime 是用户主动定位的结果，照常采用。
+       v1.9.5：再加一条「实际在推进」——部分 WebView 在大 blob 上 readyState 停在 2
+       却正常出声、currentTime 稳定前进，旧判据会把进度钳死在上一帧，
+       表现就是「主界面进度一直 0，锁屏那边进度条却在正常走」。 */
+    const healthy=(el.readyState>=3)||!state.playing||(t>audPos+0.05);
     if(healthy){ audEl=el; audPos=t; state.cur=t; }
     else { state.cur=Math.min(t,audPos); }
     seekRender(); updateLrc(state.cur); try{ nativeMusicSync(); }catch(e){} });
   el.addEventListener('ended',onEnded);
   el.addEventListener('play',()=>{ if(el!==activeEl) return; state.playing=true; setIcon(true); updateDisplay(); });
   el.addEventListener('pause',()=>{ if(el!==activeEl) return; state.playing=false; setIcon(false); });
-  el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } const ap=aliveProxies(); if(ap.length){ opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=ap[0]+encodeURIComponent(opSrc); return; } opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用'+(el.error&&el.error.code?('（媒体错误 '+el.error.code+'）'):''),'err'); });
+  el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioB&&opSrc){ if(blobReady){ adoptBlob(); return; } if(cacheUrl){ /* 网络流挂了但缓存在下：别报错，安静等缓存，完成自动播 */ pendingAutoPlay=true; return; } toast('在线播放失败：链接失效或网络中断，稍后重试或换一首','err'); return; } if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } const ap=aliveProxies(); if(ap.length){ opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=ap[0]+encodeURIComponent(opSrc); return; } opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用'+(el.error&&el.error.code?('（媒体错误 '+el.error.code+'）'):''),'err'); });
 }
 bindAudio(audio); bindAudio(audioO); bindAudio(audioB);
 /* ---- 缓冲状态巡检（v1.8.20-beta2）----
@@ -3969,27 +4040,7 @@ bindAudio(audio); bindAudio(audioO); bindAudio(audioB);
    · <3  → 把「播放中/缓冲中」纠正成「缓冲中 N%」（N 取 buffered 末端占比，
            能看出缓存有没有在涨：涨=在缓存，一直 0=源有问题，随后 error 会报）。
    其它状态（就绪/已暂停/缓存中 N%）一律不动，避免抢缓存下载进度和暂停语义。 */
-setInterval(function(){
-  if(!state.playing) return;
-  const d=$('dStatus'); if(!d) return;
-  const el=activeEl; if(!el) return;
-  const cur=d.textContent||'';
-  const inBuf=(cur==='播放中'||cur==='Playing'||cur==='缓冲中…'||cur==='Buffering…'||/^缓冲中/.test(cur)||/^Buffering/.test(cur));
-  if(el.readyState>=3){
-    if(inBuf&&cur!=='播放中') d.textContent='播放中';
-    return;
-  }
-  if(!inBuf) return;
-  let pct='';
-  try{
-    const b=el.buffered, du=el.duration;
-    if(b&&b.length&&du&&isFinite(du)&&du>0){
-      const e=b.end(b.length-1);
-      if(e>0) pct=' '+Math.min(99,Math.round(e*100/du))+'%';
-    }
-  }catch(_){}
-  d.textContent='缓冲中'+(pct||'…');
-},700);
+
 function seekRender(){ const p=state.dur>0?clamp(state.cur/state.dur,0,1):0; $('seekFill').style.width=(p*100)+'%'; $('seekKnob').style.left=(p*100)+'%'; $('curTime').textContent=fmtDur(state.cur); renderProg(); }
 
 /* 进度条 / 音量条（点击+拖动） */
@@ -4004,6 +4055,82 @@ function makeBar(barEl,setVal){
 makeBar($('seekBar'),p=>{ if(state.dur){ activeEl.currentTime=p*state.dur; state.cur=p*state.dur; seekRender(); } });
 makeBar($('volBar'),p=>{ state.vol=clamp(p,0,1); ensureCtx(); applyVolume(); savePrefs(); });
 
+/* ---- 播放健康巡检（v1.9.5）----
+   放在独立文件里纯粹是为了让 06-online.js 不超 650 行的模块上限；
+   运行时与它共享同一个 IIFE 闭包，cacheUrl / pendingAutoPlay 等变量都可见。 */
+/* ---- 播放健康巡检（v1.9.5 重写）----
+   每 700ms 看一次，做三件事：
+   ① 状态栏诚实：currentTime 真的在推进才写「播放中」，否则写「缓存中 N%」；
+      以前只按 readyState 判，元素明明卡在 0 秒也一直显示「播放中」，用户没法判断；
+   ② 起播门：网络流 6 秒还没起来，就停手把带宽全让给缓存，缓存完成自动接上 ——
+      这就是「缓存的时候就停播等待、显示正在缓存」的做法，比假装在播诚实得多；
+   ③ 停顿看门狗：blob 播到一半 currentTime 连续 4 秒不动 → 自动退回原生播放。 */
+let __stallT=-1, __stallN=0, __waitSince=0;
+function cachePctText(){
+  if(!cacheUrl) return '';
+  const mb=cacheGot>0?(' · '+(cacheGot/1048576).toFixed(1)+'MB'):'';
+  return cacheTotal>0 ? (Math.min(99,Math.round(cacheGot*100/cacheTotal))+'%'+mb) : ('…'+mb);
+}
+setInterval(function(){
+  const d=$('dStatus');
+  /* 为缓存让路停播（pendingAutoPlay）期间也要报进度：这时 state.playing 已经是 false，
+     若不特殊处理，界面会停在「已暂停/缓冲中…」，用户根本看不出它在缓存、更不知道缓存到哪了。 */
+  if(pendingAutoPlay && cacheUrl && d && !state.playing){
+    d.textContent='缓存中'+cachePctText();
+    return;
+  }
+  if(!state.playing||!activeEl){ __stallT=-1; __stallN=0; __waitSince=0; return; }
+  const el=activeEl; if(!el||!d) return;
+  const t=el.currentTime||0;
+  const advanced = __stallT<0 ? true : (t>__stallT+0.05);
+  __stallT=t;
+  __stallN = advanced ? 0 : __stallN+1;
+
+  /* ② 起播门 */
+  if(el===audioB && t<0.05 && (el.readyState||0)<2){
+    if(!__waitSince) __waitSince=Date.now();
+    else if(Date.now()-__waitSince>6000 && cacheUrl){
+      __waitSince=0;
+      pendingAutoPlay=true;
+      state.playing=false;
+      try{ el.pause(); }catch(e){}
+      try{ setIcon(false); }catch(e){}
+      d.textContent='缓存中'+cachePctText();
+      toast('网络较慢，正在缓存这首，完成后会自动播放','warn');
+      return;
+    }
+  } else __waitSince=0;
+
+  /* ③ 停顿看门狗 */
+  if(__stallN>=4){
+    __stallN=0;
+    if(el===audioO && el.getAttribute('data-blob')==='1' && opSrc){
+      if(fallbackToStream('音源播放中断，已自动切回在线播放')) return;
+    }
+  }
+
+  /* ① 状态栏 */
+  const cur=d.textContent||'';
+  const inBuf=(cur==='播放中'||cur==='Playing'||cur==='缓冲中…'||cur==='Buffering…'||/^缓冲中/.test(cur)||/^Buffering/.test(cur)||/^缓存中/.test(cur));
+  if(el.readyState>=3){
+    if(inBuf&&cur!=='播放中'&&advanced&&t>=0.05) d.textContent='播放中';
+    /* 有数据但一秒多都没推进（play() 刚发出去、解码器还没吐第一帧）：别急着说「播放中」，
+       先按实际能看到的进度如实报。这正是用户那句「显示播放中、进度一直是 0」的正面修法。 */
+    if(cur==='播放中'&&(t<0.05||!advanced)&&__stallN>=2) d.textContent = cacheUrl?('缓存中'+cachePctText()):'缓冲中…';
+    return;
+  }
+  if(!inBuf) return;
+  if(cacheUrl){ d.textContent='缓存中'+cachePctText(); return; }
+  let pct='';
+  try{
+    const b=el.buffered, du=el.duration;
+    if(b&&b.length&&du&&isFinite(du)&&du>0){
+      const e=b.end(b.length-1);
+      if(e>0) pct=' '+Math.min(99,Math.round(e*100/du))+'%';
+    }
+  }catch(_){}
+  d.textContent='缓冲中'+(pct||'…');
+},700);
 /* ================= 歌词（默认只显示当前 5 行，可展开全部） ================= */
 let lrc=[], curLrc=-1, lrcExpand=false;
 function setLrc(raw){
@@ -5093,9 +5220,19 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.4';
-const APP_CODE = 95;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.5';
+const APP_CODE = 96;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.5', code:96, date:'2026-11-07', notes:[
+    '修复：手机版切到某些在线歌会卡住——信息窗封面都出来了，却一直没声音、进度停在 0，切走再切回来才正常',
+    '- 根因一：网络流和缓存文件共用同一个播放元素，而这个元素一旦被音频引擎接管过，跨域流经它必然静音、把引擎断开则彻底没有输出；现在两类音源彻底分家，网络流用专用元素（永不接引擎，任何来源都出声），本地缓存用另一个（接引擎出频谱），互不污染',
+    '- 根因二：缓存明明已经下完，但判定「正卡着就先别切」把唯一完整的本地文件晾在一边，于是那首永远卡在 0；现在卡着的时候更要切，切过去必然能播',
+    '改进：网络慢、播放迟迟起不来时，不再假装「播放中」',
+    '- 状态栏如实显示「缓存中 45% · 1.9MB」并把带宽全让给缓存，下完自动接上；以前这种情况一律显示「播放中」，用户没法判断是在缓冲还是坏了',
+    '- 缓存文件播到一半卡死（无报错、进度不动）时，4 秒内自动切回在线播放，不用手动切歌',
+    '修复：主界面进度条偶发停在不走（锁屏那边的进度条却正常）',
+    '- 原因是进度是否可信只看「后头数据够不够」，部分机型在这种情况下明明在正常出声也会被判定为不可信，于是主界面进度被钳住；现在只要时间轴确实在前进就照常显示',
+  ]},
   { v:'1.9.4', code:95, date:'2026-11-07', notes:[
     '修复：网页版「极光」「星环」两种频谱没有效果（其余三种正常）',
     '- 根因：判断「有没有波形数据」的函数是给频域数据写的，而时域波形静音时恒为 128 不是 0 —— 于是缓存还没到手时，这两个模式拿到一条恒为 128 的死波形，画出来就是一条不动的直线。霓虹/烈焰/星粒用的是频域数据，所以不受影响',
@@ -7335,6 +7472,10 @@ window.__wm={
   renderCacheUI:renderCacheUI, loadTrack:loadTrack, cacheGet:cacheGet, cachePut:cachePut,
   resolveOnlineUrlForTest:resolveOnlineUrl, withTimeout:withTimeout,
   get state(){ return state; }, get store(){ return store; }, get audioO(){ return audioO; },
+  get audioB(){ return audioB; }, get activeEl(){ return activeEl; }, get actx(){ return actx; },
+  get cacheInfo(){ return {url:cacheUrl, got:cacheGot, total:cacheTotal, auto:pendingAutoPlay}; },
+  getFreq:function(){ return getFreq(); }, getWave:function(){ return getWave(); },
+  fallbackToStream:fallbackToStream,
   get opStage(){ return opStage; }, renderPl:renderPl,
   openRowMenu:openRowMenu, closeRowMenu:closeRowMenu,
   /* 仅供测试：更新通道（v1.8.20） */
