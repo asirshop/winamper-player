@@ -2590,7 +2590,8 @@ function diskOpen(){
 function diskTx(mode){ if(!diskDb) return null; try{ return diskDb.transaction([DISK_STORE],mode).objectStore(DISK_STORE); }catch(e){ return null; } }
 function diskLoadMeta(){
   try{ const o=JSON.parse(localStorage.getItem(DISK_META)||'{}');
-       diskBytes=Math.max(0,o.bytes|0); diskCount=Math.max(0,o.count|0); }catch(e){ diskBytes=0; diskCount=0; }
+       /* 同 fmtSize：bytes 超过 2GB 后 |0 会溢出，下次启动的统计就直接是错的 */
+       diskBytes=Math.max(0,Math.floor(+o.bytes||0)); diskCount=Math.max(0,Math.floor(+o.count||0)); }catch(e){ diskBytes=0; diskCount=0; }
 }
 function diskSaveMeta(){ try{ localStorage.setItem(DISK_META,JSON.stringify({bytes:diskBytes,count:diskCount})); }catch(e){} }
 function diskStat(){ return {bytes:diskBytes,count:diskCount,ok:diskOk,limit:diskLimitBytes()}; }
@@ -2784,7 +2785,9 @@ async function migrateLyrics(){
   }catch(e){}
 }
 function fmtSize(n){
-  n=Math.max(0,n|0);
+  /* 不能用 n|0 取整：|0 是 32 位截断，字节数一到 2GB 的整数倍就溢出归零
+     （2/4/8/20GB 全显示「0 B」，5.5GB 会错报成 1.5GB），缓存明明在却像被清空了 */
+  n=Math.max(0,Math.floor(+n||0));
   const trim=function(v){ return String(v).replace(/\.0+$/,'').replace(/(\.\d)0+$/,'$1'); };
   if(n>=1024*1024*1024) return trim((n/1024/1024/1024).toFixed(2))+' GB';
   if(n>=1024*1024) return trim((n/1024/1024).toFixed(1))+' MB';
@@ -5220,9 +5223,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.6';
-const APP_CODE = 97;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.7';
+const APP_CODE = 98;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.7', code:98, date:'2026-11-07', notes:[
+    '修复：用户档案页「缓存管理」里，已缓存大小和缓存上限都显示成 0 B',
+    '- 根因：大小换算用 |0 取整，而它是 32 位截断——字节数一到 2GB 的整数倍（2/3/4/8/20GB）就溢出归零，5.5GB 还会错报成 1.5GB；缓存的文件本身一直都在，只是显示错了',
+    '- 顺带把缓存总量记录的同一处截断也修掉，避免缓存超过 2GB 的设备下次启动时统计直接错乱',
+  ]},
   { v:'1.9.6', code:97, date:'2026-11-07', notes:[
     '修复：手机版切到某些在线歌会卡住——封面都出来了，却一直没声音、进度停在 0，切走再切回来才正常',
     '- 根因一：网络流和缓存文件共用同一个播放元素，而这个元素一旦被音频引擎接管过，跨域流经它必然静音、把引擎断开则彻底没有输出；现在两类音源彻底分家，网络流用专用元素（永不接引擎，任何来源都出声），本地缓存用另一个（接引擎出频谱），互不污染',
