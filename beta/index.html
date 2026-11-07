@@ -3502,14 +3502,19 @@ function adoptDecision(el, playing){
   if(playing && (el.readyState||0)<3) return {ok:false, pos:0};
   return {ok:true, pos:Math.max(0, el.currentTime||0)};
 }
+let blobSeq=0;                 /* 每次换源自增：过期的回调不许再动当前这首 */
 function blobSwitch(el, url, pos, wasPlaying){
   /* 换源到本地文件：加载成功就原位续播。
      ★ 必须带超时兜底 —— 旧实现只等 loadedmetadata，事件一旦不来（blob 解码失败、
        元素被系统挂起、换源时机撞上正在进行的加载），这首歌就永远停在「有信息、没声音」，
        而且 blobReady 已被消费掉，后面切哪首都救不回来。 */
+  const seq=++blobSeq;
   let done=false;
   const finish=function(){
     if(done) return; done=true;
+    /* 已被更晚的一次切歌取代：这个回调是上一首的残留，绝不能碰现在的元素，
+       否则会把播放位置改回旧值、或重新播旧文件 —— 表现就是自动切歌后「卡住」。 */
+    if(seq!==blobSeq) return;
     /* 标记「当前确实是同源 blob」之后才允许接入 Web Audio —— 顺序不能反：
        换源之前进来的还是跨域网络流，此刻接入会被 CORS 判为不可读而静音。 */
     try{ el.setAttribute('data-blob','1'); }catch(e){}
@@ -3520,17 +3525,23 @@ function blobSwitch(el, url, pos, wasPlaying){
   el.addEventListener('loadedmetadata',function h(){ el.removeEventListener('loadedmetadata',h); finish(); },{once:true});
   setTimeout(function(){
     if(done) return;
-    if(el!==activeEl){ done=true; return; }
-    /* 2.5 秒还读不出元数据，说明这个 blob 根本放不了（半截文件/解码不支持）：
-       退回网络流继续播。旧实现是无论如何都 finish()，等于把元素钉在坏 blob 上，
-       表现就是「显示播放中、进度条不动、没声音」，而且切哪首都一样。 */
-    if((el.readyState||0)<1 && opSrc){
+    if(seq!==blobSeq || el!==activeEl){ done=true; return; }
+    /* 判「真失败」而不是「还没读完」：networkState===3（NO_SOURCE）或已报错，
+       才是这个 blob 放不了；只是 readyState 还没上来（低端机读大 blob 慢）就继续等，
+       以前按 readyState<1 就回退，慢设备上会误判成失败、把刚缓存的歌报成「无法播放」。 */
+    const dead=!!el.error || el.networkState===3;
+    if(dead && (el.readyState||0)<1){
       done=true;
-      try{ el.removeAttribute('data-blob'); el.src=opSrc; if(wasPlaying) el.play().catch(function(){}); }catch(e){}
+      /* 只有在手上有可用的网络地址时才退回流式，否则宁可留在 blob 上等浏览器报错 */
+      if(opSrc && opSrc!==url && opSrc!==el.src){
+        try{ el.removeAttribute('data-blob'); el.src=opSrc; if(wasPlaying) el.play().catch(function(){}); }catch(e){}
+      }else{
+        toast('缓存文件读取失败，请再点一次播放','warn');
+      }
       return;
     }
     finish();
-  },2500);   /* 兜底：照原位置播，不让它僵住 */
+  },2500);
   try{ el.src=url; }catch(e){}
 }
 function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱链路 */
@@ -5059,9 +5070,16 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.2';
-const APP_CODE = 93;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.3';
+const APP_CODE = 94;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.3', code:94, date:'2026-11-07', notes:[
+    '修复：榜单/歌单里「只有歌名」的歌曲点播动不动就报「没找到可播资源」',
+    '- 根因是补全播放链接的等待时间只有 6 秒，而这个接口单次就要 2~4 秒、遇到限流还要退避重试，经常没等出结果就判了「没有」；手动搜索用的是另一条不限时的链路，所以同一首歌手动搜就有。现在按接口的重试预算放宽，并且「歌名+歌手」搜不到时会退回「只按歌名」再搜一次',
+    '修复：手机版自动切歌偶发卡住、缓存好了却提示「无法播放」，切走再切回来又能播',
+    '- 原因是缓存文件的加载判定太急：低端机读十几兆的缓存本来就慢，2.5 秒没读出元数据就被当成坏文件、退回到可能已过期的网络链接。现在只在浏览器明确放弃该文件时才回退，单纯「读得慢」继续等',
+    '- 顺带：连续切歌时上一首的延迟回调不会再改到当前这首（之前会造成位置回跳、进度卡住）',
+  ]},
   { v:'1.9.2', code:93, date:'2026-11-07', notes:[
     '网页版在线音乐修复：音质选择真正生效，不再每首都拉无损大文件',
     '- 修复：音质参数名写错（接口只认 br，代码传的是 bitrate），选 128 也照样给 FLAC —— 单曲 40~50MB、码率 1.4Mbps，网页里边下边播很容易卡在「播放中、进度不动」；现在按所选码率取 MP3，默认 320k 约 10MB',
@@ -7218,11 +7236,26 @@ function addChartSongs(arr){
 }
 /* 榜单/外来的「只有歌名」的曲目：播放前按名搜索补全链接与 meta（复用接口候选池） */
 async function resolveTrackByName(tr){
-  const kw=(tr.name||'')+(tr.art?' '+tr.art:'');
-  if(!kw.trim()) return false;
+  const name=(tr.name||'').trim();
+  if(!name) return false;
+  const kw=name+(tr.art?' '+tr.art:'');
+  /* v1.9.3：原来的 6 秒超时太短 —— 这个接口单次就要 2~4 秒，
+     碰到 503 还要退避重试（内部预算 13 秒），6 秒必然被掐断，
+     于是「榜单里的歌点了说没找到，手动搜索却明明有」。
+     现在按接口自身的重试预算给足时间，并且「歌名+歌手」搜不到时
+     退回「只按歌名」再搜一次（歌手名带斜杠、英文名、括号版本都会让组合搜索落空）。 */
   let list=[];
-  try{ list=await withTimeout(gdSearch(kw), 6000, []) || []; }catch(e){}
-  if(!list.length){ toast('没找到「'+(tr.name||'')+'」的可播资源','err'); return false; }
+  try{ list=await withTimeout(gdSearch(kw), 12000, null) || []; }catch(e){}
+  if(!list.length && kw!==name){
+    try{ list=await withTimeout(gdSearch(name), 12000, null) || []; }catch(e){}
+  }
+  if(!list.length){
+    /* 还不行就走「和手动搜索完全同一条」的候选池：逐个接口试，试到能用的就记住它。
+       这一步是给「当前接口挂了/被限流」准备的 —— 手动搜得到、榜单点播却说没有，
+       以前就差在这里。 */
+    try{ const r=await withTimeout(searchAll(kw), 15000, null); if(r&&r.list&&r.list.length) list=r.list; }catch(e){}
+  }
+  if(!list.length){ toast('没找到「'+name+'」的可播资源（接口没响应，可稍后重试或手动搜索）','err'); return false; }
   const norm=s=>String(s||'').replace(/[（(【\[].*$/,'').replace(/[\s·\-_~]/g,'').toLowerCase();
   const base=norm(tr.name);
   const hit=list.find(x=>x.name&&norm(x.name)===base)||list[0];
@@ -7399,8 +7432,8 @@ window.__wm={
     if(ma2) return 'Added '+ma2[1]+' to "'+ma2[2]+'"';
     var md=core.match(/^这些歌都已在「([\s\S]+)」里，没有重复添加$/);
     if(md) return 'All of these are already in "'+md[1]+'" — nothing added';
-    var mn=core.match(/^没找到「([\s\S]+)」的可播资源$/);
-    if(mn) return 'No playable source found for "'+mn[1]+'"';
+    var mn=core.match(/^没找到「([\s\S]+)」的可播资源（接口没响应，可稍后重试或手动搜索）$/);
+    if(mn) return 'No playable source found for "'+mn[1]+'" (API not responding — retry later or search manually)';
     var mt=core.match(/^把当前榜单全部 (\d+) 首加入当前歌单（自动跳过已有）$/);
     if(mt) return 'Add all '+mt[1]+' songs of this chart to the current playlist (duplicates skipped)';
     var ms2=core.match(/^([\s\S]+) · (\d+) 首$/);
