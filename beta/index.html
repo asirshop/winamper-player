@@ -3518,7 +3518,19 @@ function blobSwitch(el, url, pos, wasPlaying){
     if(el===audioO) ensureOAttached();
   };
   el.addEventListener('loadedmetadata',function h(){ el.removeEventListener('loadedmetadata',h); finish(); },{once:true});
-  setTimeout(function(){ if(!done && el===activeEl) finish(); },2500);   /* 兜底：照原位置播，不让它僵住 */
+  setTimeout(function(){
+    if(done) return;
+    if(el!==activeEl){ done=true; return; }
+    /* 2.5 秒还读不出元数据，说明这个 blob 根本放不了（半截文件/解码不支持）：
+       退回网络流继续播。旧实现是无论如何都 finish()，等于把元素钉在坏 blob 上，
+       表现就是「显示播放中、进度条不动、没声音」，而且切哪首都一样。 */
+    if((el.readyState||0)<1 && opSrc){
+      done=true;
+      try{ el.removeAttribute('data-blob'); el.src=opSrc; if(wasPlaying) el.play().catch(function(){}); }catch(e){}
+      return;
+    }
+    finish();
+  },2500);   /* 兜底：照原位置播，不让它僵住 */
   try{ el.src=url; }catch(e){}
 }
 function adoptBlob(){  /* 同源blob就绪：切过去并把 audioO 接入频谱链路 */
@@ -3610,6 +3622,12 @@ async function fetchAudioStreamLazy(u, signal, onProg, isLive){
     chunks.push(s.value); got+=s.value.length;
     onProg(got, total);
   }
+  /* v1.9.2：完整性校验。看门狗在「8 秒没有新字节」时会掐断这条线，
+     掐断时拿到的是**半截文件**，但 type 仍是 audio/mpeg、size 也过得了
+     looksLikeAudio —— 于是被当成整首切过去播，解码到断点就停住：
+     界面显示「播放中」、进度条不动、没有声音。宁可这一轮不切 blob，
+     让网络流自己播完，也不能把元素钉死在半截文件上。 */
+  if(total>0 && got < total*0.98) throw new Error('incomplete '+got+'/'+total);
   return new Blob(chunks,{type:ctype||'audio/mpeg'});
 }
 /* 缓存进度：只在暂停时显示，让用户看得见「它还在下、快完了」 */
@@ -3676,11 +3694,15 @@ async function primeBlob(url, tr){
   }
 }
 function routeOnline(){
-  if(isMobile) return;            // 手机端绝不把可能被污染的流式元素接入Web Audio（改为blob热切换时再挂）
-  try{ ensureCtx(); }catch(e){ return; }
-  if(!actx || !filters.length) return;
-  if(!sourceO){ try{ sourceO=actx.createMediaElementSource(audioO); sourceO.connect(filters[0]); }catch(e){ sourceO=null; return; } }
-  audioO.volume=1;
+  /* v1.9.2：网络流一律「原生出声」，不再在 loadedmetadata 时接进 Web Audio。
+     两条真实事故都出在这里：
+     ① 音频 CDN 不保证回 Access-Control-Allow-Origin。元素一旦被
+        createMediaElementSource 接管，浏览器按 CORS 规定直接输出静音 ——
+        界面正常、就是没声，而且这首再也救不回来；
+     ② AudioContext 在异步回调里 resume 常被自动播放策略拒绝，
+        接管之后同样是「在播、没声」。
+     频谱改由同源 blob 到手后的 ensureOAttached 接管 —— 那一刻能确保一定出声。
+     宁可前几秒没有频谱，也不能没声音。 */
 }
 /* 缓存命中时直接出声：同源 blob 供 Web Audio 接频谱，零网络请求 */
 function startOnlineBlob(url, tr, blob){
@@ -3706,11 +3728,11 @@ function startOnline(url, tr){
      被 Web Audio 接管后浏览器按 CORS 直接输出静音 —— 进度条照走、界面正常、就是没声，
      而且之后切哪首都没声，直到重启。这是一整轮「连续切歌后假死」的元凶。 */
   if(sourceO){ try{ sourceO.disconnect(); }catch(e){} }
-  if(isMobile){
-    audioO.removeAttribute('crossorigin');      // 手机：原生出声保命，频谱靠后台同源blob到手后热切
-  }else{
-    audioO.setAttribute('crossorigin','anonymous'); // PC：沿用原CORS流式秒播，blob仅作兜底
-  }
+  /* v1.9.2：不再设 crossorigin。
+     元素在 blob 到手前不接 Web Audio，根本用不上 CORS；
+     而设了它，遇到「不回 ACAO 的 CDN」反而会连加载都失败，
+     表现就是点了歌一直转圈、进不了播放状态。 */
+  audioO.removeAttribute('crossorigin');
   setActive(audioO);
   audioO.src=url;
   spFade=0; applyVolume(true);                   // 音量从第一帧就按滑块生效，不再先最大声
@@ -3903,7 +3925,7 @@ function bindAudio(el){
   el.addEventListener('ended',onEnded);
   el.addEventListener('play',()=>{ if(el!==activeEl) return; state.playing=true; setIcon(true); updateDisplay(); });
   el.addEventListener('pause',()=>{ if(el!==activeEl) return; state.playing=false; setIcon(false); });
-  el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } const ap=aliveProxies(); if(ap.length){ opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=ap[0]+encodeURIComponent(opSrc); return; } opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用','err'); });
+  el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } const ap=aliveProxies(); if(ap.length){ opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=ap[0]+encodeURIComponent(opSrc); return; } opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用'+(el.error&&el.error.code?('（媒体错误 '+el.error.code+'）'):''),'err'); });
 }
 bindAudio(audio); bindAudio(audioO); bindAudio(audioB);
 /* ---- 缓冲状态巡检（v1.8.20-beta2）----
@@ -5037,9 +5059,15 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.1';
-const APP_CODE = 92;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.2';
+const APP_CODE = 93;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.2', code:93, date:'2026-11-07', notes:[
+    '网页版在线音乐修复：音质选择真正生效，不再每首都拉无损大文件',
+    '- 修复：音质参数名写错（接口只认 br，代码传的是 bitrate），选 128 也照样给 FLAC —— 单曲 40~50MB、码率 1.4Mbps，网页里边下边播很容易卡在「播放中、进度不动」；现在按所选码率取 MP3，默认 320k 约 10MB',
+    '- 修复：PC/网页端不再把跨域网络流接进音频滤波器。部分 CDN 不给跨域头，接管后浏览器按规则直接输出静音（界面正常、就是没声）；现在网络流走原生出声，同源缓存到手后再接频谱，宁可晚几秒出频谱也不冒险静音',
+    '- 顺带：播放失败提示会带上媒体错误码，便于定位是链接失效还是解码不支持',
+  ]},
   { v:'1.9.1', code:92, date:'2026-11-07', notes:[
     '网页版修复：排行榜恢复 + 在线音乐不再「点了不播」',
     '- 修复：网页版排行榜用不了——两家榜单接口都不给跨域头，原先兜底的公共代理已全部停服；现改由机器人每天抓取、存成同源数据，网页直接读，不再依赖任何第三方代理',
@@ -6191,9 +6219,19 @@ async function srcPlay(s,id,q){
   if(!id) return null;
   const br=QUALITY_MAP[q]||'';
   if(s.kind==='gd'||s.kind==='auto'){
-    const u=br?(s.base+'?types=url&source=netease&id='+id+'&bitrate='+br):(s.base+'?types=url&source=netease&id='+id);
-    const j=await apiJson(u);
-    if(j&&j.url) return {url:j.url, exact:!!br};
+    /* v1.9.2 修：参数名原来写成 bitrate，而该接口只认 br ——
+       等于音质选择从来没生效过，不管你选 128 还是 320，一律返回最高音质的 FLAC：
+       单曲 40~50MB、码率 1.4Mbps，网页里边下边播极容易卡在缓冲；
+       更糟的是部分 CDN 把 FLAC 谎报成 audio/mpeg，个别浏览器按 MP3 解，直接不出声。
+       这正是「缓冲完显示播放中、进度条不动、没声音」的根因。 */
+    const mk=function(b){ return s.base+'?types=url&source=netease&id='+encodeURIComponent(id)+(b?('&br='+b):''); };
+    const j=await apiJson(mk(br));
+    if(j&&j.url) return {url:j.url, exact: br?String(j.br||'')===String(br):false};
+    /* 该码率确实没有源（老歌常见）：退一档到 320，别让整首直接失败 */
+    if(br&&br!=='320'){
+      const j2=await apiJson(mk('320'));
+      if(j2&&j2.url) return {url:j2.url, exact:false};
+    }
   }
   if(s.kind==='meting'||s.kind==='auto'){
     const j=await apiJson(s.base+'?server=netease&type=url&id='+id);
@@ -6241,7 +6279,10 @@ async function gdLyric(id){
 }
 
 /* ===== 音质选择 ===== */
-const QUALITY_MAP={ auto:'', '128':'128', '192':'192', '320':'320', sq:'lossless', hq:'exhigh' };
+/* 音质档位 → 接口的 br 参数。128/192/320 是 MP3；740/999 才是 FLAC。
+   以前写成 lossless / exhigh（那是另一套 API 的叫法），接口不认、静默返回 FLAC，
+   于是「选 128 省流量」实际每首仍要下 40MB 以上。 */
+const QUALITY_MAP={ auto:'', '128':'128', '192':'192', '320':'320', sq:'999', hq:'740' };
 function netQuality(){ try{ const c=navigator.connection; if(c){ const et=(c.effectiveType||'').toLowerCase(); if(c.saveData) return '128'; if(/2g|3g/.test(et)) return '128'; if(et==='4g') return '320'; } }catch(e){} return '320'; }
 function effQuality(){ return (state.quality&&state.quality!=='auto')?state.quality:netQuality(); }
 async function gdPlayQ(id,q){ const r=await srcPlay(curSrc(),id,q); return r?r.url:null; }
@@ -6938,6 +6979,28 @@ function chartNative(){
   }catch(e){}
   return false;
 }
+/* 取 JSON：fetch 优先；老内核没有 fetch（或壳浏览器把它阉了）时退回 XHR。
+   酷狗/UC 这类内置浏览器版本参差，缺一个入口就整块榜单空白，值得双通道。 */
+function chartGetJSON(u,noStore){
+  if(typeof fetch==='function'){
+    return fetch(u,noStore?{cache:'no-store'}:undefined).then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; });
+  }
+  return new Promise(function(res){
+    try{
+      const x=new XMLHttpRequest();
+      x.open('GET',u,true);
+      if(noStore){ try{ x.setRequestHeader('Cache-Control','no-cache'); }catch(e){} }
+      x.onload=function(){
+        if(!(x.status>=200&&x.status<300)){ res(null); return; }
+        try{ res(JSON.parse(x.responseText)); }catch(e){ res(null); }
+      };
+      x.onerror=function(){ res(null); };
+      x.ontimeout=function(){ res(null); };
+      x.timeout=8000;
+      x.send();
+    }catch(e){ res(null); }
+  });
+}
 /* 读同源榜单包：主站 ./charts.json，beta 子目录 ../charts.json（release 也放了一份，双保险） */
 async function chartBundleLoad(force){
   if(chartNative()) return null;                     /* APK 用原生桥，数据更新更及时 */
@@ -6945,16 +7008,16 @@ async function chartBundleLoad(force){
   if(chartBundle) return chartBundle;
   if(chartBundleTried) return null;
   chartBundleTried=true;
-  const cands=['./charts.json','../charts.json'];
+  /* 相对路径优先（同源、最快）；再加一条绝对地址兜底 ——
+     部分手机浏览器（酷狗、UC 之类）会把页面转码/代理到自己的域名下，
+     这时 ./charts.json 就指向了对方服务器、必然 404，榜单整块空白。
+     绝对地址直连主站，GitHub Pages 带 ACAO:*，跨域也能读。 */
+  const cands=['./charts.json','../charts.json','https://asirshop.github.io/winamper-player/charts.json'];
   for(let i=0;i<cands.length;i++){
-    try{
-      /* 普通打开走浏览器/CDN 缓存（快）；点「刷新」才加时间戳强拉最新 */
-      const u=force?cands[i]+'?t='+Date.now():cands[i];
-      const r=await fetch(u,force?{cache:'no-store'}:undefined);
-      if(!r.ok) continue;
-      const j=await r.json();
-      if(j&&j.sources){ chartBundle=j; return j; }
-    }catch(e){}
+    /* 普通打开走浏览器/CDN 缓存（快）；点「刷新」才加时间戳强拉最新 */
+    const u=force?cands[i]+'?t='+Date.now():cands[i];
+    const j=await chartGetJSON(u,!!force);
+    if(j&&j.sources){ chartBundle=j; return j; }
   }
   return null;
 }
@@ -7091,8 +7154,10 @@ async function chartLoadCharts(force){
     chartSyncAddAll();
     const box=$('chartList'); if(box) box.innerHTML='';
     const sub=$('chartSub'); if(sub) sub.textContent='';
+    /* v1.9.2：本地文件版现在也能读线上榜单（走绝对地址，GitHub Pages 带 ACAO:*），
+       所以失败不再是「格式不支持」，而是「真没连上」。文案按实际原因说。 */
     chartStatus(location.protocol==='file:'
-      ? '本地文件模式取不到在线榜单：请用在线版网页或 APP 查看'
+      ? '榜单加载失败：本地文件版需要联网。请检查网络后点「↻ 刷新」重试'
       : '榜单暂时不可用，稍后再试或点「↻ 刷新」重试');
     return;
   }
