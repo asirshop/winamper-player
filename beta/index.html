@@ -1018,7 +1018,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   .titlebar .tb-user .uname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
   .titlebar > .actions { flex: 0 1 auto; flex-wrap: nowrap; gap: 6px; padding: 0; min-width: 0; }
   .logo { font-size: 14px; }
-  .titlebar .ver-badge, .titlebar .skin-label, .titlebar .logo-badge { display: none; }
+  /* 金玉版徽标保留（此前被一并隐藏，品牌看起来只剩 WINAMPER）；
+     版本徽标仍隐藏，横屏顶栏位置留给语言/帮助/皮肤/用户/退出。 */
+  .titlebar .ver-badge, .titlebar .skin-label { display: none; }
+  .titlebar .logo-badge { display: inline-block; font-size: 9px; padding: 2px 5px; }
+  /* 皮肤下拉搬到顶栏第一排（品牌区最右端）：左列工具条只剩三个按钮，
+     一行放得下，省出的一整行还给歌词区。 */
+  .titlebar .skin-box { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-left: 2px; }
+  .titlebar .skin-box select { height: 26px; font-size: 11px; width: 88px; min-width: 0;
+                               background: var(--btn-bg); color: var(--txt);
+                               border: 1px solid var(--chrome-edge); border-radius: 5px; padding: 0 4px; }
   #skinSel { width: 84px; min-width: 84px; height: 26px; }
   .actions button, .tb-user .user-btn { padding: 3px 8px; height: 26px; font-size: 11px; gap: 4px; white-space: nowrap; }
   .titlebar .top-nav { gap: 4px; }
@@ -4999,14 +5008,15 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.20-beta2';
-const APP_CODE = 86;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.20';
+const APP_CODE = 87;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
-  { v:'1.8.20-beta2', code:85, date:'2026-11-07', notes:[
+  { v:'1.8.20', code:86, date:'2026-11-07', notes:[
     '横屏适配修补 + 播放状态更诚实',
-    '- 修复：横屏时左右两栏结合处按键被遮挡（窄横屏下工具条放不下整行溢出，现自动换行、皮肤框可收缩，任何宽度都完整可见）',
+    '- 修复：横屏时左右两栏结合处按键被遮挡（窄横屏下工具条放不下整行溢出，现自动换行，任何宽度都完整可见）',
     '- 修复：歌曲信息窗的封面图超出边框（转屏后尺寸没跟着重算；现在横屏一律按窗高自适应，竖屏转屏后也会自动重算）',
     '- 改进：切歌后「显示播放中但进度不动」分不清没源还是在缓存——现在会实时显示「缓冲中 N%」，缓存有没有在涨一眼可辨；链接真失效仍会弹错误提示',
+    '- 改进：横屏顶栏恢复「金玉版」徽标；皮肤下拉搬到顶栏第一排右端，左列工具条只剩三个键，歌词区不再被挤矮',
     '- 补充：播放中/已暂停/缓冲中等状态文字补齐英文词条'
   ]},
   { v:'1.8.20-beta1', code:84, date:'2026-11-07', notes:[
@@ -6632,12 +6642,20 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
     if(!bar||!acts||!tools) return;
 
     if(mq.matches){
-      /* 打开音乐 / 在线搜索 / 皮肤 → 左列工具条 */
+      /* 打开音乐 / 在线搜索 / 排行榜 → 左列工具条 */
       MOVE_IDS.forEach(function(id){
         const el=document.getElementById(id);
         if(el&&el.parentElement!==tools) tools.appendChild(el);
       });
-      if(skinBox&&skinBox.parentElement!==tools) tools.appendChild(skinBox);
+      /* 皮肤下拉 → 顶栏第一排（品牌区最右端，语言/帮助之后）。
+         它不再占左列的一行，工具条只剩三个按钮，一行放得下，
+         省出的 26px+ 还给歌词区；竖屏时原样放回操作组第三排。 */
+      const brand=document.querySelector('.titlebar .tb-brand');
+      const nav=document.getElementById('topNav');
+      if(skinBox&&brand&&skinBox.parentElement!==brand){
+        if(nav&&nav.parentElement===brand) brand.insertBefore(skinBox, nav.nextSibling);
+        else brand.appendChild(skinBox);
+      }
       /* 退出键 → 顶栏最右 */
       if(exit&&exit.parentElement!==bar) bar.appendChild(exit);
       /* 操作组空了就藏起来，别留一条空白占位 */

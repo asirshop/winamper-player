@@ -199,7 +199,7 @@ body { font-family: system-ui, -apple-system, "Roboto", "Noto Sans CJK SC", "Sou
 .trackline { display: flex; align-items: stretch; gap: 10px; }
 .display { width: 100%; min-width: 0; height: 94px; background: var(--lcd); border: 1px solid var(--chrome-edge);
   border-radius: 5px; box-shadow: 0 2px 6px inset rgba(0,0,0,.7); padding: 10px 14px; display: flex; flex-direction: row;
-  align-items: center; gap: 10px; }
+  align-items: center; gap: 10px; overflow: hidden; }
 /* 文字区：占满剩余宽度，内容内部再竖直居中 */
 .display .d-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 /* 封面位：默认收起（宽 0、不显示），只有加上 .has-pic 才展开。
@@ -311,10 +311,13 @@ body { font-family: system-ui, -apple-system, "Roboto", "Noto Sans CJK SC", "Sou
   padding-right: 20px !important; }
 #fxSel { flex: 1 1 0; min-width: 0; height: 30px; padding: 0 20px 0 8px; border-radius: 5px; background-color: var(--lcd);
   border: 1px solid var(--chrome-edge); color: var(--lcd-text); font-family: inherit; font-size: 12px; outline: none; cursor: pointer; }
-#fxSel option { background: var(--chrome-lo); color: var(--txt); }
+/* option 的展开列表在 WebView 里由系统绘制，不吃 select 的 font-size，
+   不显式指定就会用系统默认（约 16px），比面板 12px 大一圈。 */
+#fxSel option, #qualitySel option { background: var(--chrome-lo); color: var(--txt);
+  font-family: inherit; font-size: 13px; line-height: 1.5; padding: 6px 8px; }
+#fxSel option:checked, #qualitySel option:checked { background: var(--accent-lo); color: #fff; }
 #qualitySel { flex: 1 1 0; min-width: 0; height: 30px; padding: 0 20px 0 8px; border-radius: 5px; background-color: var(--lcd);
   border: 1px solid var(--chrome-edge); color: var(--lcd-text); font-family: inherit; font-size: 12px; outline: none; cursor: pointer; }
-#qualitySel option { background: var(--chrome-lo); color: var(--txt); }
 #qualitySel.q-warn { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn); }
 .fx-off { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 30px; border-radius: 5px;
   background: var(--btn-bg); border: 1px solid var(--chrome-edge); cursor: pointer; color: var(--tbtn-text); box-shadow: inset 0 1px 0 var(--bevel-hi), 0 1px 0 #000; }
@@ -728,6 +731,19 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .ver-list b{ color:var(--accent-hi); }
 .ver-tag{ display:inline-block; font:700 10px/1 Consolas,monospace; color:#0b0d12; background:var(--accent-hi);
   padding:2px 5px; border-radius:4px; margin-right:6px; vertical-align:1px; }
+/* ===== 更新通道切换（正式版 / 测试版） ===== */
+.ver-ch{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 0 9px;
+  border-bottom:1px solid rgba(255,255,255,.08); }
+.ver-ch-label{ font-size:12px; color:var(--txt-dim); white-space:nowrap; }
+.ver-ch-seg{ display:inline-flex; border:1px solid var(--chrome-edge); border-radius:5px; overflow:hidden; }
+.ver-ch-seg button{ font-family:inherit; font-size:12px; font-weight:600; padding:4px 10px; cursor:pointer;
+  color:var(--txt); background:var(--btn-bg); border:0; border-right:1px solid var(--chrome-edge);
+  transition: filter .12s ease; }
+.ver-ch-seg button:last-child{ border-right:0; }
+.ver-ch-seg button:hover{ filter:brightness(1.14); }
+.ver-ch-seg button.on{ color:#fff; background:linear-gradient(180deg,var(--accent-hi),var(--accent-lo)); }
+.ver-ch-hint{ font-size:11px; line-height:1.5; color:var(--txt-dim); }
+.ver-ch-hint b{ color:var(--warn); font-weight:600; }
 
 /* ===== 排行榜弹窗（v1.8.15） ===== */
 .chart-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
@@ -1002,7 +1018,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   .titlebar .tb-user .uname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
   .titlebar > .actions { flex: 0 1 auto; flex-wrap: nowrap; gap: 6px; padding: 0; min-width: 0; }
   .logo { font-size: 14px; }
-  .titlebar .ver-badge, .titlebar .skin-label, .titlebar .logo-badge { display: none; }
+  /* 金玉版徽标保留（此前被一并隐藏，品牌看起来只剩 WINAMPER）；
+     版本徽标仍隐藏，横屏顶栏位置留给语言/帮助/皮肤/用户/退出。 */
+  .titlebar .ver-badge, .titlebar .skin-label { display: none; }
+  .titlebar .logo-badge { display: inline-block; font-size: 9px; padding: 2px 5px; }
+  /* 皮肤下拉搬到顶栏第一排（品牌区最右端）：左列工具条只剩三个按钮，
+     一行放得下，省出的一整行还给歌词区。 */
+  .titlebar .skin-box { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-left: 2px; }
+  .titlebar .skin-box select { height: 26px; font-size: 11px; width: 88px; min-width: 0;
+                               background: var(--btn-bg); color: var(--txt);
+                               border: 1px solid var(--chrome-edge); border-radius: 5px; padding: 0 4px; }
   #skinSel { width: 84px; min-width: 84px; height: 26px; }
   .actions button, .tb-user .user-btn { padding: 3px 8px; height: 26px; font-size: 11px; gap: 4px; white-space: nowrap; }
   .titlebar .top-nav { gap: 4px; }
@@ -1012,9 +1037,15 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
      顶栏只留：品牌 · 语言 · 帮助 · 用户 · 退出。
      「打开音乐 / 在线搜索 / 皮肤」由脚本搬到左列控制区顶部（#landTools），
      那一排有足够宽度，按钮不会互相挤压。 */
-  .land-tools { display: flex; align-items: center; gap: 5px; padding: 0 0 2px; }
+  /* 窄横屏（如 640px 宽）左列放不下「打开音乐+在线搜索+排行榜+皮肤框」，
+     之前整行溢出被右列盖住（结合处按键被遮挡）。两步兜底：
+     ① 皮肤框允许收缩（88 → 最小 56px）；② 实在放不下整行换行，绝不溢出列外。 */
+  .land-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; row-gap: 3px;
+                padding: 0 0 2px; min-width: 0; overflow: hidden; }
   .land-tools:empty { display: none; }
   .land-tools button, .land-tools .skin-box { flex: 0 0 auto; }
+  .land-tools .skin-box { flex: 0 1 88px; min-width: 56px; }
+  .land-tools button { flex-shrink: 1; min-width: 0; }
   .land-tools button { height: 26px; padding: 0 9px; font-size: 11px; gap: 4px;
                        display: inline-flex; align-items: center; justify-content: center;
                        font-family: inherit; font-weight: 600; color: var(--txt);
@@ -1025,7 +1056,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
   .land-tools button .ic { width: 13px; height: 13px; }
   .land-tools button.act-toggle.on { color: var(--accent-hi);
     border-color: color-mix(in srgb, var(--accent-hi) 70%, var(--chrome-edge)); }
-  .land-tools .skin-box select { height: 26px; font-size: 11px; width: 88px;
+  .land-tools .skin-box select { height: 26px; font-size: 11px; width: 100%; min-width: 0;
                                  background: var(--btn-bg); color: var(--txt);
                                  border: 1px solid var(--chrome-edge); border-radius: 5px; padding: 0 4px; }
   .land-tools .skin-label { display: none; }
@@ -1057,6 +1088,10 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 
   .ctl { flex: 0 0 auto; display: flex; flex-direction: column; gap: 5px; padding: 6px 8px 4px; }
   .display { height: 52px; padding: 4px 10px; gap: 2px; }
+  /* 封面尺寸不再信 JS 算好的 --cover-sz（那是转屏前算的，转横屏后没人重算，
+     64px 的图会溢出 52px 高的信息窗）。横屏一律按窗高自适应，方形不变形。 */
+  .display.has-pic .d-cover { height: 100%; width: auto; flex: 0 1 auto;
+                              aspect-ratio: 1 / 1; max-width: 34%; }
   .display .d-title { font-size: 13px; }
   .display .d-art { font-size: 10px; }
   .display .d-foot { font-size: 9px; }
@@ -1438,8 +1473,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
     <div class="modal-body">
       <!-- 更新操作区置顶：更新记录越来越长，按钮压在最下面要滚很久才够得着 -->
       <div class="ver-actions">
-        <button id="btnCheckUpd" style="font-family:inherit;font-size:12px;padding:5px 10px">检查更新</button>
-        <button id="btnCopyLink" style="font-family:inherit;font-size:12px;padding:5px 10px">复制下载链接</button>
+        <button id="btnCheckUpd" class="chart-btn">检查更新</button>
+        <button id="btnCopyLink" class="chart-btn">复制下载链接</button>
+      </div>
+      <div class="ver-ch">
+        <span class="ver-ch-label">更新通道</span>
+        <div class="ver-ch-seg" id="verChSeg">
+          <button type="button" data-ch="stable">正式版</button>
+          <button type="button" data-ch="beta">测试版</button>
+        </div>
+        <span class="ver-ch-hint" id="verChHint">测试版更新更早，可能不稳定</span>
       </div>
       <div id="verUpdateBox" style="display:none">
         <div id="verUpdateMsg" style="font-size:12px;line-height:1.7;color:var(--txt-dim)"></div>
@@ -3052,28 +3095,37 @@ function clearCover(){
   if(lcd){ lcd.classList.remove('has-pic'); lcd.style.removeProperty('--cover-sz'); }
   if(img){ img.classList.add('hide'); img.removeAttribute('src'); }
 }
+/* 按信息窗当前尺寸算封面边长（上下贴内高、宽不超 1/3）。
+   抽成独立函数：转屏/改窗口后旧尺寸会失配（比如竖屏算的 64px 塞进横屏 52px 高的窗），
+   resize / orientationchange 时对已显示封面的窗重算一次。 */
+function sizeCover(){
+  const lcd=$('lcdDisplay');
+  if(!lcd||!lcd.classList.contains('has-pic')) return;
+  const cs=getComputedStyle(lcd);
+  const padY=(parseFloat(cs.paddingTop)||0)+(parseFloat(cs.paddingBottom)||0);
+  const padX=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0);
+  const innerH=(lcd.clientHeight||94)-padY;          /* 内容区高度 */
+  const innerW=(lcd.clientWidth||300)-padX;          /* 内容区宽度 */
+  if(innerH<20||innerW<60) return;                   /* 布局尚未就绪/不可见，别乱写 */
+  const byH=Math.round(innerH);                      /* 尽量贴着内高 */
+  const byW=Math.round(innerW*0.34);                 /* 最多占内容宽 1/3 强 */
+  const sz=Math.max(30, Math.min(byH, byW, 96));
+  lcd.style.setProperty('--cover-sz', sz+'px');
+}
 function showCover(url,tr){
-  const d=$('dCover'), img=$('dCoverImg');
+  const d=$('dCover'), img=$('dCoverImg'), lcd=$('lcdDisplay');
   if(!d||!img||!url){ clearCover(); return; }
   /* 尺寸：先按信息窗内高铺满（上下各留 8px），再按宽度占比收一档，
      保证文字区仍然有足够宽度显示歌名（约 60% 以上）。 */
-  const lcd=$('lcdDisplay');
-  if(lcd){
-    const cs=getComputedStyle(lcd);
-    const padY=(parseFloat(cs.paddingTop)||0)+(parseFloat(cs.paddingBottom)||0);
-    const padX=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0);
-    const innerH=(lcd.clientHeight||94)-padY;          /* 内容区高度 */
-    const innerW=(lcd.clientWidth||300)-padX;          /* 内容区宽度 */
-    const byH=Math.round(innerH);                      /* 尽量贴着内高 */
-    const byW=Math.round(innerW*0.34);                 /* 最多占内容宽 1/3 强 */
-    const sz=Math.max(30, Math.min(byH, byW, 96));
-    lcd.style.setProperty('--cover-sz', sz+'px');
-  }
+  sizeCover();
   img.classList.remove('hide');
   img.onerror=function(){ clearCover(); };            /* 图挂了就当没有 */
   img.src=url;
-  if(lcd) lcd.classList.add('has-pic');
+  lcd.classList.add('has-pic');
 }
+/* 转屏/改窗口后重算封面尺寸（sizeCover 内部自己判 has-pic） */
+window.addEventListener('resize', sizeCover, {passive:true});
+window.addEventListener('orientationchange', function(){ setTimeout(sizeCover,180); });
 /* 从本地音频文件里抠内嵌封面（ID3v2 APIC / FLAC PICTURE） */
 async function readLocalCover(file){
   try{
@@ -3825,6 +3877,34 @@ function bindAudio(el){
   el.addEventListener('error',()=>{ if(el!==activeEl) return; if(!el.getAttribute('src')) return; if(el===audioO&&opSrc){ if(opStage===0){ if(blobReady){ adoptBlob(); return; } opStage=1; audioO.removeAttribute('crossorigin'); audioO.removeAttribute('data-blob'); audioO.src=PROXY+encodeURIComponent(opSrc); return; } if(opStage===1){ opStage=2; attachB(); audioB.src=blobReady?URL.createObjectURL(blobReady):opSrc; setActive(audioB); play(); return; } } toast('无法播放：链接失效或文件不可用','err'); });
 }
 bindAudio(audio); bindAudio(audioO); bindAudio(audioB);
+/* ---- 缓冲状态巡检（v1.8.20-beta2）----
+   waiting/stalled 事件在部分 WebView 上切歌后不派发，状态就一直停在「播放中」，
+   进度却不动，用户分不清是没源还是在缓存。每 700ms 看一眼 activeEl.readyState：
+   · >=3（后头有连续数据）→ 若之前显示「缓冲中」，纠正回「播放中」；
+   · <3  → 把「播放中/缓冲中」纠正成「缓冲中 N%」（N 取 buffered 末端占比，
+           能看出缓存有没有在涨：涨=在缓存，一直 0=源有问题，随后 error 会报）。
+   其它状态（就绪/已暂停/缓存中 N%）一律不动，避免抢缓存下载进度和暂停语义。 */
+setInterval(function(){
+  if(!state.playing) return;
+  const d=$('dStatus'); if(!d) return;
+  const el=activeEl; if(!el) return;
+  const cur=d.textContent||'';
+  const inBuf=(cur==='播放中'||cur==='Playing'||cur==='缓冲中…'||cur==='Buffering…'||/^缓冲中/.test(cur)||/^Buffering/.test(cur));
+  if(el.readyState>=3){
+    if(inBuf&&cur!=='播放中') d.textContent='播放中';
+    return;
+  }
+  if(!inBuf) return;
+  let pct='';
+  try{
+    const b=el.buffered, du=el.duration;
+    if(b&&b.length&&du&&isFinite(du)&&du>0){
+      const e=b.end(b.length-1);
+      if(e>0) pct=' '+Math.min(99,Math.round(e*100/du))+'%';
+    }
+  }catch(_){}
+  d.textContent='缓冲中'+(pct||'…');
+},700);
 function seekRender(){ const p=state.dur>0?clamp(state.cur/state.dur,0,1):0; $('seekFill').style.width=(p*100)+'%'; $('seekKnob').style.left=(p*100)+'%'; $('curTime').textContent=fmtDur(state.cur); renderProg(); }
 
 /* 进度条 / 音量条（点击+拖动） */
@@ -4928,9 +5008,25 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.19';
-const APP_CODE = 83;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.20';
+const APP_CODE = 87;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.20', code:86, date:'2026-11-07', notes:[
+    '横屏适配修补 + 播放状态更诚实',
+    '- 修复：横屏时左右两栏结合处按键被遮挡（窄横屏下工具条放不下整行溢出，现自动换行，任何宽度都完整可见）',
+    '- 修复：歌曲信息窗的封面图超出边框（转屏后尺寸没跟着重算；现在横屏一律按窗高自适应，竖屏转屏后也会自动重算）',
+    '- 改进：切歌后「显示播放中但进度不动」分不清没源还是在缓存——现在会实时显示「缓冲中 N%」，缓存有没有在涨一眼可辨；链接真失效仍会弹错误提示',
+    '- 改进：横屏顶栏恢复「金玉版」徽标；皮肤下拉搬到顶栏第一排右端，左列工具条只剩三个键，歌词区不再被挤矮',
+    '- 补充：播放中/已暂停/缓冲中等状态文字补齐英文词条'
+  ]},
+  { v:'1.8.20-beta1', code:84, date:'2026-11-07', notes:[
+    '更新通道分流：测试版与正式版分开走',
+    '- 版本弹窗新增「更新通道」切换：正式版 / 测试版，随时可来回切',
+    '- 测试版更新更早，但可能不稳定；稳定后提升为正式版，测试版用户会收到升级提示',
+    '- 测试版发布用预发布（prerelease）标记，正式版用户不会误收到测试版推送',
+    '- 音效/音质下拉的展开列表补了字号与行高（此前用系统默认大字号）',
+    '- 版本弹窗「检查更新/复制下载链接」补主题配色（此前是白底默认样式）'
+  ]},
   { v:'1.8.19', code:83, date:'2026-11-07', notes:[
     '排行榜界面多语言补全',
     '- 排行榜弹窗的状态提示、toast、按钮动态文案（刷新中/取到N首/已加入N首等）补齐英文词条',
@@ -5190,13 +5286,21 @@ const CHANGELOG = [
   ]}
 ];
 
-function verCmp(a,b){                      /* 返回 >0 表示 a 比 b 新 */
-  const pa=String(a).split('.').map(Number), pb=String(b).split('.').map(Number);
-  for(let i=0;i<Math.max(pa.length,pb.length);i++){
-    const d=(pa[i]||0)-(pb[i]||0);
+function verCmp(a,b){                      /* 返回 >0 表示 a 比 b 新（支持 1.8.20-beta2 形式） */
+  function parse(v){
+    v=String(v||'').trim().replace(/^v/i,'');
+    const m=v.match(/^(\d+(?:\.\d+)*)(?:-beta\.?(\d+))?$/i);
+    const nums=(m?m[1]:v).split('.').map(function(x){ return parseInt(x,10)||0; });
+    /* 无 beta 后缀视为正式版：同号时正式版新于任何 beta（1.8.20 > 1.8.20-beta9） */
+    const beta=m?(m[2]?parseInt(m[2],10):1e9):1e9;
+    return {nums:nums, beta:beta};
+  }
+  const A=parse(a), B=parse(b);
+  for(let i=0;i<Math.max(A.nums.length,B.nums.length);i++){
+    const d=(A.nums[i]||0)-(B.nums[i]||0);
     if(d) return d;
   }
-  return 0;
+  return A.beta-B.beta;
 }
 
 /* 版本号唯一填充点：徽标、页脚、弹窗标题全部由 APP_VER 生成。
@@ -5233,14 +5337,70 @@ $('verMask').addEventListener('click',e=>{ if(e.target===$('verMask')) $('verMas
 /* ---- 检查更新 ---- */
 const UPD_KEY='winamper_update_feed';       /* 更新清单地址（可选，留空则不联网检查） */
 const UPD_LAST='winamper_update_last';      /* 上次检查时间 */
+const UPD_CH='winamper_update_channel';     /* 更新通道：stable / beta */
+/* 测试版的「最新版本」清单：随测试版网页一起部署，APK 与网页版通用。
+   比 GitHub API 稳（不受限流影响），且带 versionCode，beta 后缀不会比错大小。 */
+const UPD_BETA_JSON='https://asirshop.github.io/winamper-player/beta/update.json';
 let updInfo=null;
 
+function isBetaVer(v){ return /-beta\d*$/i.test(String(v||'')); }
+/* 通道默认值：测试版包自动走测试版通道，正式版包走正式通道。
+   用户手动选过就以选择为准（存本地）。 */
+function updChannel(){
+  let v=''; try{ v=localStorage.getItem(UPD_CH)||''; }catch(e){}
+  if(v==='stable'||v==='beta') return v;
+  return isBetaVer(APP_VER)?'beta':'stable';
+}
+function setUpdChannel(v){
+  try{ localStorage.setItem(UPD_CH, v==='beta'?'beta':'stable'); }catch(e){}
+  paintUpdChannel();
+}
+function paintUpdChannel(){
+  const ch=updChannel(), seg=$('verChSeg'), hint=$('verChHint');
+  if(seg) seg.querySelectorAll('button').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-ch')===ch); });
+  if(hint) hint.textContent = ch==='beta'
+    ? '测试版更新更早，可能不稳定；用一阵没问题再转正式版'
+    : '正式版更稳；想尝鲜可以切到测试版';
+}
 function updFeedUrl(){
   try{ return (localStorage.getItem(UPD_KEY)||'').trim(); }catch(e){ return ''; }
 }
 function updUpdPlugin(){ const cap=window.Capacitor; return (cap&&cap.isNativePlatform&&cap.isNativePlatform()&&cap.Plugins&&cap.Plugins.UpdatePlugin)?cap.Plugins.UpdatePlugin:null; }
 
+/* 测试版通道：读随测试版网页部署的 update.json（带 versionCode，比较基于 code，
+   不受 "-beta1" 这类后缀影响；正式版提升后这里的 code 更大，测试版用户会被引导升级到正式版）。 */
+async function fetchBetaUpdate(manual){
+  let j=null;
+  try{
+    const c=new AbortController(); const t=setTimeout(function(){ c.abort(); }, 9000);
+    const r=await fetch(UPD_BETA_JSON+'?t='+Date.now(),{cache:'no-store',signal:c.signal});
+    clearTimeout(t);
+    if(r.ok) j=await r.json();
+  }catch(e){}
+  if(!j || !j.url){
+    if(manual) showUpdResult('检查更新失败','无法连接测试版更新服务器。\n稍后再试，或把更新通道切回「正式版」。');
+    return null;
+  }
+  const remote=String(j.version||'').trim();
+  const code=Number(j.code||0);
+  const newer = code ? (code>APP_CODE) : (verCmp(remote,APP_VER)>0);
+  if(!newer){
+    if(manual) showUpdResult('已是最新版本 v'+APP_VER, '当前没有更新的测试版。');
+    return null;
+  }
+  try{ localStorage.setItem(UPD_LAST,String(Date.now())); }catch(e){}
+  updInfo={version:remote||('code '+code), code:code, url:String(j.url),
+           notes:Array.isArray(j.notes)?j.notes.filter(function(x){return x&&String(x).trim();}).slice(0,6):[]};
+  return updInfo;
+}
+
 async function fetchUpdateInfo(manual){
+  /* 测试版通道优先：它可能是 beta，也可能是已提升的正式版（同一个地址） */
+  if(updChannel()==='beta'){
+    const b=await fetchBetaUpdate(manual);
+    if(b||manual) return b;
+    /* 静默检查时测试版清单取不到，退回正式通道再试一次，别让用户完全收不到更新 */
+  }
   const feed=updFeedUrl();
   const up=updUpdPlugin();
   /* APK 内：优先直接问 GitHub 最新 Release，无需用户配置清单 */
@@ -5752,6 +5912,18 @@ function refreshFbLinks(){
 }
 if(document.getElementById('helpMask')) refreshFbLinks();
 if($('btnCheckUpd')) $('btnCheckUpd').addEventListener('click',function(){ checkUpdateManual(); });
+/* 更新通道切换：切完立刻查一次，用户马上能看到这条通道有没有新版本 */
+if($('verChSeg')) $('verChSeg').addEventListener('click',function(e){
+  const b=e.target.closest?e.target.closest('button[data-ch]'):null;
+  if(!b) return;
+  const ch=b.getAttribute('data-ch')==='beta'?'beta':'stable';
+  if(ch===updChannel()) return;
+  setUpdChannel(ch);
+  updInfo=null;
+  toast(ch==='beta'?'已切到测试版通道（更新更早，可能不稳定）':'已切到正式版通道（更稳定）');
+  setTimeout(function(){ checkUpdateManual(); }, 150);
+});
+paintUpdChannel();
 /* 复制下载链接：给老浏览器打不开下载页、或想手动传给别的设备时用 */
 if($('btnCopyLink')) $('btnCopyLink').addEventListener('click',function(){
   var isEn=(typeof window.__wmLang==='function')&&window.__wmLang()==='en';
@@ -6470,12 +6642,20 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
     if(!bar||!acts||!tools) return;
 
     if(mq.matches){
-      /* 打开音乐 / 在线搜索 / 皮肤 → 左列工具条 */
+      /* 打开音乐 / 在线搜索 / 排行榜 → 左列工具条 */
       MOVE_IDS.forEach(function(id){
         const el=document.getElementById(id);
         if(el&&el.parentElement!==tools) tools.appendChild(el);
       });
-      if(skinBox&&skinBox.parentElement!==tools) tools.appendChild(skinBox);
+      /* 皮肤下拉 → 顶栏第一排（品牌区最右端，语言/帮助之后）。
+         它不再占左列的一行，工具条只剩三个按钮，一行放得下，
+         省出的 26px+ 还给歌词区；竖屏时原样放回操作组第三排。 */
+      const brand=document.querySelector('.titlebar .tb-brand');
+      const nav=document.getElementById('topNav');
+      if(skinBox&&brand&&skinBox.parentElement!==brand){
+        if(nav&&nav.parentElement===brand) brand.insertBefore(skinBox, nav.nextSibling);
+        else brand.appendChild(skinBox);
+      }
       /* 退出键 → 顶栏最右 */
       if(exit&&exit.parentElement!==bar) bar.appendChild(exit);
       /* 操作组空了就藏起来，别留一条空白占位 */
@@ -6864,6 +7044,10 @@ window.__wm={
   get state(){ return state; }, get store(){ return store; }, get audioO(){ return audioO; },
   get opStage(){ return opStage; }, renderPl:renderPl,
   openRowMenu:openRowMenu, closeRowMenu:closeRowMenu,
+  /* 仅供测试：更新通道（v1.8.20） */
+  __updChannel:updChannel, __setUpdChannel:setUpdChannel, __paintUpdChannel:paintUpdChannel,
+  __fetchUpdateInfo:fetchUpdateInfo, __fetchBetaUpdate:fetchBetaUpdate, verCmp:verCmp,
+  get APP_CODE(){ return APP_CODE; }, get APP_VER(){ return APP_VER; },
   /* 仅供测试：缓存到手后的切换决策 */
   adoptDecision:adoptDecision, playbackStarved:playbackStarved,
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
@@ -6897,9 +7081,18 @@ window.__wm={
 /* ================= 多语言（简体中文 / 繁體中文 / English） ================= */
 (function(){
   var S2T={"与":"與","丝":"絲","丢":"丟","两":"兩","个":"個","为":"爲","么":"麼","义":"義","乐":"樂","于":"於","仅":"僅","从":"從","仓":"倉","优":"優","会":"會","传":"傳","伦":"倫","体":"體","侧":"側","关":"關","内":"內","册":"冊","写":"寫","冲":"衝","决":"決","准":"準","几":"幾","击":"擊","则":"則","刚":"剛","创":"創","删":"刪","别":"別","办":"辦","务":"務","动":"動","势":"勢","区":"區","单":"單","占":"佔","历":"歷","压":"壓","参":"參","双":"雙","发":"發","变":"變","叠":"疊","台":"臺","号":"號","后":"後","吗":"嗎","听":"聽","启":"啓","响":"響","图":"圖","圆":"圓","块":"塊","声":"聲","处":"處","备":"備","复":"復","头":"頭","夹":"夾","实":"實","宽":"寬","对":"對","导":"導","将":"將","尘":"塵","尝":"嘗","尽":"盡","层":"層","峰":"峯","带":"帶","帧":"幀","帮":"幫","干":"幹","并":"並","库":"庫","应":"應","开":"開","异":"異","弃":"棄","弹":"彈","强":"強","当":"當","录":"錄","径":"徑","态":"態","恒":"恆","悬":"懸","户":"戶","执":"執","扩":"擴","扰":"擾","抛":"拋","报":"報","拦":"攔","择":"擇","挂":"掛","挡":"擋","挤":"擠","损":"損","换":"換","据":"據","摇":"搖","撑":"撐","数":"數","断":"斷","无":"無","旧":"舊","时":"時","昵":"暱","显":"顯","暂":"暫","机":"機","权":"權","条":"條","来":"來","杰":"傑","极":"極","构":"構","标":"標","栏":"欄","样":"樣","档":"檔","检":"檢","横":"橫","樱":"櫻","没":"沒","测":"測","浏":"瀏","涨":"漲","渐":"漸","滚":"滾","满":"滿","点":"點","热":"熱","状":"狀","独":"獨","环":"環","现":"現","电":"電","画":"畫","盖":"蓋","盘":"盤","码":"碼","确":"確","离":"離","种":"種","称":"稱","类":"類","紧":"緊","红":"紅","约":"約","级":"級","线":"線","组":"組","细":"細","终":"終","经":"經","结":"結","绘":"繪","给":"給","络":"絡","绝":"絕","统":"統","继":"繼","绪":"緒","续":"續","绿":"綠","缀":"綴","缓":"緩","编":"編","缝":"縫","缩":"縮","网":"網","联":"聯","肤":"膚","胀":"脹","脉":"脈","脑":"腦","脚":"腳","脸":"臉","节":"節","荐":"薦","获":"獲","蓝":"藍","虑":"慮","补":"補","装":"裝","见":"見","观":"觀","视":"視","览":"覽","觉":"覺","触":"觸","订":"訂","认":"認","让":"讓","记":"記","许":"許","设":"設","访":"訪","证":"證","识":"識","词":"詞","试":"試","该":"該","误":"誤","请":"請","读":"讀","谁":"誰","调":"調","谱":"譜","贝":"貝","败":"敗","质":"質","贴":"貼","费":"費","赖":"賴","车":"車","转":"轉","轮":"輪","载":"載","较":"較","辉":"輝","辐":"輻","辑":"輯","输":"輸","边":"邊","达":"達","过":"過","运":"運","还":"還","这":"這","进":"進","连":"連","适":"適","选":"選","逻":"邏","释":"釋","里":"裏","钉":"釘","钟":"鍾","钮":"鈕","铺":"鋪","链":"鏈","销":"銷","锁":"鎖","错":"錯","键":"鍵","长":"長","闪":"閃","闭":"閉","问":"問","间":"間","阅":"閱","阳":"陽","际":"際","险":"險","随":"隨","隐":"隱","静":"靜","页":"頁","顶":"頂","项":"項","顺":"順","须":"須","预":"預","频":"頻","颗":"顆","题":"題","额":"額","风":"風","驱":"驅","验":"驗","齐":"齊"};
-  var EN={"WINAMPER 金玉版":"WINAMPER Gold","金玉版":"Gold","全屏":"Fullscreen","帮助":"Help","访客":"Guest","外观":"Skin","经典蓝":"Classic","极客绿":"Geek","暗夜紫":"Midnight","暖阳橙":"Sunset","樱花粉":"Sakura","打开音乐":"Open Music","在线搜索":"Search Online","保存并退出":"Save & Exit","退出":"Exit","免登录 · 直连公开接口":"No login · Public API","搜索":"Search","接口地址：":"API URL:","（失效会自动跳到下一个可用接口）":"(Failed sources auto-skip to the next)","添加并探测":"Add & Probe","探测全部接口":"Probe All","清空自定义":"Clear Custom","拉取订阅":"Fetch Feed","导出清单":"Export List","订阅清单只认「接口地址」，不会加载或执行清单里的 .js 插件脚本（避免执行来路不明的代码）。":"The feed only imports API URLs; .js plugin scripts inside it are never loaded or executed (for safety).","在线搜索依赖公开第三方接口，歌词不保证匹配、播放链接有时效；搜索失败可点「自动换源」，无法联网时请改用本地播放。":"Online search relies on public third-party APIs. Lyrics may not match and play URLs expire. If search fails, try \"Auto Switch Source\"; use local playback when offline.","未知歌手":"Unknown Artist","就绪":"Ready","音效":"FX","原声":"Original","低音增强":"Bass Boost","流行":"Pop","摇滚":"Rock","古典":"Classical","电子":"Electronic","人声清晰":"Vocal Clarity","高音增强":"Treble Boost","音质":"Quality","自动（默认）":"Auto (Default)","SQ 无损":"SQ Lossless","HQ 高品":"HQ High","柱状":"Bars","歌词":"Lyrics","展开 ▾":"Expand ▾","收起 ▴":"Collapse ▴","在线匹配歌词":"Match Lyrics Online","暂无歌词":"No lyrics","打开 .lrc 歌词文件":"Open .lrc lyrics file","播放列表":"Playlist","1 首":"1 track","全部 ▾":"All ▾","默认歌单":"Default Playlist","+ 新建":"+ New","重命名":"Rename","删除":"Delete","+ 添加本地音乐":"+ Add Local Music","清空":"Clear","导出歌单":"Export Playlist","导入歌单":"Import Playlist","拖到此":"Drag here,","，或点「添加本地音乐」":"or click \"Add Local Music\"","◀ 上一页":"◀ Prev","下一页 ▶":"Next ▶","撤销":"Undo","收起":"Collapse","本机保存·无需密码":"Saved locally · no password","头像（点击圆形选择图片，可拖动位置并缩放后裁成圆形）":"Avatar (click the circle to pick an image; drag and zoom, then crop to a circle)","换头像":"Change Avatar","选择图片":"Choose Image","移除头像":"Remove Avatar","仅在本机保存，跟随当前用户。":"Saved on this device only, per user.","昵称（点击右侧 ✏️ 或直接双击名字可修改当前用户的名字）":"Nickname (click ✏️ or double-click the name to rename)","改名后歌单、头像等设置均不受影响；昵称不可为空、不可与已有用户重复。":"Renaming keeps playlists, avatar and settings. The name cannot be empty or duplicate an existing user.","切换用户（在下拉框选择用户后，可点「删除」移除该用户）":"Switch User (pick a user, then Delete to remove)","切换":"Switch","新建用户（昵称）":"New User (Nickname)","创建":"Create","数据备份（文件名带当前用户名，多人不混）":"Data Backup (filename includes the current user)","清除":"Clear","网页播放器文件":"Player File","下载当前网页播放器（.html），保存到本机即可离线使用。":"Download this player (.html) and keep it for offline use.","快速上手":"Quick Start","点右上角「全屏」可让播放器铺满整块屏幕，再点一次或按 ESC 退出。":"Click \"Fullscreen\" (top right) to fill the screen; click again or press ESC to exit.","点标题栏「用户」打开档案页，输入昵称即可「新建用户」，多人互不干扰。":"Open the profile page via the \"User\" button; type a nickname and \"Create\" a new user. Each user keeps separate data.","点圆形头像区可换头像，弹窗里可拖动位置、滚轮或双指缩放，再确认裁剪成圆形；「修改昵称」可给当前用户改名，「删除」可移除某用户。":"Click the round avatar to change it: drag, wheel/pinch to zoom, then confirm the circular crop. You can also rename or remove users there.","昵称行点右侧 ✏️ 或直接双击名字即可改名；点 ↺ 可将当前用户重置为默认昵称「访客」。":"Click ✏️ (or double-click the name) to rename; tap ↺ to reset the current user to the default name \"Guest\".","拖拽本地音乐或 .lrc 歌词到列表即可播放。":"Drag local music or .lrc lyrics onto the list to play. Use \"Download this player file\" to export an offline copy.","下载在线歌曲：长按那一行选「下载」，或点行末的下载小按钮。播放过的歌直接用播放时的缓存出文件；没播过的会重新取链接，抓到的一定是真音频（不是音频就报错，不会存下打不开的假文件）。":"Downloading online songs: long-press the row and choose \"Download\", or use the small download button. Played songs reuse the playback cache; unplayed songs fetch a fresh link and are verified as real audio.","点歌单里的一行就直接播放。想处理某一首歌：在它那行上按住不放约 0.3 秒（电脑约 0.4 秒），会弹出小菜单，里面有「播放」「下载」「移除」三个键，点「移除」即删掉这首歌，底部 6 秒内还能点「撤销」原样还原。菜单外面随便点一下、按 ESC 或滚动列表都会收起菜单。":"Double-click a row to play. Long-press a row (~0.3s) for a small menu with Play / Download / Remove. Removed songs can be restored via \"Undo\" within 6 seconds. Click outside, press ESC or scroll to dismiss the menu.","「清空」会先弹出确认框列出整单歌曲，清空后同样 6 秒内可撤销。行末的下载小按钮（鼠标悬停出现）点一下就下载，不参与长按。":"\"Clear\" first shows a confirmation listing all songs; clearing can also be undone within 6 seconds. The hover download button downloads instantly and does not trigger the long-press menu.","常见问题":"FAQ","关于":"About","数据存在哪里？":"Where is my data stored?","全部自动保存在本机，不上传网络；用户、歌单与设置退出后原样恢复。":"Everything is saved automatically on this device, nothing is uploaded. Users, playlists and settings are restored as-is after restart.","如何换头像 / 改名？":"How to change avatar / rename?","都在「用户」档案页里完成：选图后可拖动位置、滚轮或双指缩放，点金色 ✓ 圆形按钮确认裁圆；改名不影响已有歌单。":"All in the \"User\" profile page: pick an image, drag and zoom, then confirm the circular crop with the golden ✓ button. Renaming does not affect playlists.","如何删除用户？":"How to delete a user?","在「切换用户」下拉里选中该用户，再点红色「删除」按钮，会连同其歌单与设置一并清除。":"Select the user in the \"Switch User\" dropdown, then click the red \"Delete\" button; their playlists and settings are removed too.","如何快速改名 / 重置昵称？":"How to quickly rename / reset nickname?","昵称行点右侧 ✏️ 或直接双击名字即可修改；点 ↺ 可把当前用户重置为默认昵称「访客」。":"Click ✏️ (or double-click the name) to edit; tap ↺ to reset to the default name \"Guest\".","想把歌词或频谱放大看？":"Want a bigger lyrics / spectrum view?","在频谱窗上双击 → 频谱全屏，底部会同时显示当前这句和下一句歌词（单击可切换频谱风格）；在歌词区双击 → 歌词全屏，整屏滚动显示尽量多的行，屏幕正中有一条时间线：按住歌词上下拖动即可定位，松手就跳到那句的时间，播放中会自动跟随并把当前句停在时间线上。两种全屏都可以再双击任意处退出，也可以按 ESC 退出。":"Double-click the spectrum for fullscreen spectrum (current and next lyric line at the bottom; click to cycle styles). Double-click the lyrics for fullscreen lyrics with a center timeline: drag up/down to seek, release to jump to that line. Double-click anywhere, press ESC or use \"Exit Fullscreen\" to leave.","歌词搜不到怎么办？":"Lyrics not found?","点「在线匹配歌词」，弹窗最上面就是关键词输入框，已预填歌名（自动去掉了「(Live)」「【…】」这类尾巴）。搜不到就直接改：只留歌名、或写成「歌名 歌手」、或换成原唱名，改完点「搜索歌词」或按回车重搜；想还原点「用回歌名」。搜不到时提示会把光标放回输入框并选中文字，直接打字就能覆盖。搜索走接口候选池，某个接口失效会自动换下一个。实在没有，仍可用「打开 .lrc 歌词文件」挂本地歌词。":"Click \"Match Lyrics Online\": the keyword box at the top is pre-filled with the song title. If nothing is found, edit the keywords (title only, \"title artist\", or the original singer) and search again; \"Use Song Title\" restores it. Search goes through the source pool and auto-switches when one fails. You can always load local lyrics via \"Open .lrc lyrics file\".","歌单很长，怎么翻到后面？":"The playlist is long — how to page through it?","列表默认每页 10 首，底部有「◀ 上一页 / 下一页 ▶」翻页条，中间显示当前第几页；切歌时列表会自动跳到正在播放那一页，所以播到第 30 首也能一眼看到它。想看全部就点列表右上的「全部」，展开时翻页条自动隐藏，点「收起」又回到分页并停在当前曲那一页。分页只是显示方式，行号仍是真实序号，点歌、长按菜单、移除都照常。":"The list shows 10 tracks per page with a ◀ Prev / Next ▶ bar below. Switching songs auto-jumps to the playing page. Click \"All ▾\" to expand everything; \"Collapse\" returns to paging at the current track. Paging is display-only — row numbers stay real and all actions work as usual.","怎么删除某一首歌？":"How to remove a single song?","在那一行上按住约 0.3 秒（电脑约 0.4 秒）弹出小菜单，点红色的「移除」。按住了但手指/鼠标只要移动超过一点点，就还是正常滚动或点歌，不会误弹菜单。":"Long-press the row (~0.3s, ~0.4s on desktop) to open the menu and tap the red \"Remove\". If your finger moves more than a little, it stays normal scrolling — no accidental menu.","删歌会不会手滑删掉？":"Can I remove a song by accident?","不容易。移除后底部会出现「已移除「歌名」· 6 秒内可撤销」，点「撤销」整首原样回到原来的位置；如果删的正好是正在播放的那首，会自动停止播放，撤销后高亮也回到它身上（不会自己出声）。「清空」另有确认框，列出整单歌名，确认后同样 6 秒内可撤销。":"Unlikely. After removal a bar shows \"Removed … · undo within 6s\"; \"Undo\" restores it in place. If it was playing, playback stops and the highlight returns after undo. \"Clear\" has its own confirmation and is also undoable for 6 seconds.","哪些设置会被记住？":"Which settings are remembered?","皮肤外观、音量、随机播放、循环模式、音效预设与开关、频谱风格（霓虹/极光/星环/烈焰/星粒）、在线音质、当前歌单与列表位置，以及歌单「全部」和歌词「展开」这两个开关，都会按用户分别自动保存。注意：自动保存只存设置与在线曲目，本地音乐本体不进自动保存（刷新后需重新挂载）。":"Skin, volume, shuffle, loop mode, FX preset and switch, spectrum style, online quality, current playlist and position, plus the \"All\" and \"Expand\" toggles — all saved per user and included in the \"Export all data\" backup. Browser auto-save keeps settings and online tracks only (local files must be re-mounted after refresh); \"Export all data\" embeds local music into the backup for a full restore.","下载在线歌曲得到的是打不开的文件？":"Downloaded online songs won't open?","已经不会再出现了。播放器在放歌时就会把真实音频抓在手里（放歌需要它接频谱），点「下载」直接用这份缓存出文件，不额外耗流量；没播过的歌会先按当前音质换一个新链接再抓，并且会校验抓回来的确实是音频 —— 接口返回的错误页（HTML/JSON）会被判为假数据直接拒存，并提示你先播放一次再下载。":"This no longer happens. Played songs download straight from the playback cache; unplayed ones fetch a fresh link by current quality and the result is verified as real audio — error pages (HTML/JSON) are rejected and you are asked to play once first.","以后接口地址变了怎么办？":"What if API URLs change?","不用手动一个个试。播放器内置了接口候选池，搜索或取播放地址失败时会自动往下一个接口试，试到能用的就记住，下次打开直接用；点「自动换源搜索」可立刻逐个探测。要是全部失效，点右上「API源」，把新地址（一行一个，可一次贴多个）粘进去点「Add & Probe」，可用的会自动加入并记住，「Clear Custom」可恢复成内置那几个。":"You don't need to test manually. The built-in source pool auto-tries the next API on failure and remembers working ones. If all fail, open \"API Sources\" (top right), paste new URLs (one per line) and click \"Add & Probe\"; \"Clear Custom\" restores the built-ins. The panel shows each source as \"in use / standby\" and \"ok / dead\".","接口全挂了，能自动更新吗？":"All sources dead — can they be updated automatically?","能。点右上「API源」，在\"订阅清单地址\"里填一个 .json 直链，点「拉取订阅」：播放器会把清单里的接口地址全部导入、逐个探测，能用的自动记住并切过去，下次开机直接用。清单文件哪来的？点旁边的「导出清单」就能生成一份当前清单（JSON），你把它放到网盘直链、代码仓库或自己的站点上即可；以后谁更新了那份文件，你这边点一下就同步。出于安全考虑，清单里如果混着 .js 插件脚本，会被直接跳过——播放器不会加载执行来路不明的代码。":"Yes. Open \"API Sources\", enter a direct .json feed URL and click \"Fetch Feed\": all URLs are imported and probed, working ones remembered. Click \"Export List\" to generate your own feed (JSON) to host anywhere; re-fetching syncs updates. For safety, .js plugin scripts inside a feed are skipped — unknown code is never executed.","反馈与留言":"Feedback & Comments","遇到问题、想要新功能，或者想留句话？欢迎到 GitHub 留言，全球用户都能看到和回复。":"Found a bug, want a new feature, or just want to say hi? Leave a message on GitHub — users around the world can see and reply.","提个问题 / 留言":"Report an issue / Leave a message","看看别人说了什么":"See what others said","项目主页":"Project home","如何离线保存播放器？":"How to save the player offline?","档案页底部「下载这个播放器文件」可导出当前 .html，双击即可离线运行。":"Use \"Download this player file\" at the bottom of the profile page to export the .html; double-click it to run offline.","退出全屏":"Exit Fullscreen","确认":"Confirm","取消":"Cancel","搜索歌词":"Search Lyrics","用回歌名":"Use Song Title","正在搜索…":"Searching…","拖动移动 · 滚轮/双指缩放":"Drag to move · Wheel/pinch to zoom","缩小":"Zoom out","放大":"Zoom in","按住图片拖动可以把人脸对准圆形选区，滚轮、双指或下方滑杆可缩放；圆圈内即为最终头像。":"Drag the image to center the face in the circle; zoom with wheel, pinch or the slider below. Inside the circle is the final avatar.","已自动恢复本地数据":"Local data restored","本地":"Local","在线":"Online","加载中…":"Loading…","搜索中…":"Searching…","无结果 —— 改个关键词再搜，或用「打开 .lrc 歌词文件」":"No results — try other keywords, or \"Open .lrc lyrics file\"",
+  var EN={"WINAMPER 金玉版":"WINAMPER Gold","金玉版":"Gold","全屏":"Fullscreen","帮助":"Help","访客":"Guest","外观":"Skin","经典蓝":"Classic","极客绿":"Geek","暗夜紫":"Midnight","暖阳橙":"Sunset","樱花粉":"Sakura","打开音乐":"Open Music","在线搜索":"Search Online","保存并退出":"Save & Exit","退出":"Exit","免登录 · 直连公开接口":"No login · Public API","搜索":"Search","接口地址：":"API URL:","（失效会自动跳到下一个可用接口）":"(Failed sources auto-skip to the next)","添加并探测":"Add & Probe","探测全部接口":"Probe All","清空自定义":"Clear Custom","拉取订阅":"Fetch Feed","导出清单":"Export List","订阅清单只认「接口地址」，不会加载或执行清单里的 .js 插件脚本（避免执行来路不明的代码）。":"The feed only imports API URLs; .js plugin scripts inside it are never loaded or executed (for safety).","在线搜索依赖公开第三方接口，歌词不保证匹配、播放链接有时效；搜索失败可点「自动换源」，无法联网时请改用本地播放。":"Online search relies on public third-party APIs. Lyrics may not match and play URLs expire. If search fails, try \"Auto Switch Source\"; use local playback when offline.","未知歌手":"Unknown Artist","就绪":"Ready","播放中":"Playing","已暂停":"Paused","缓冲中…":"Buffering…",
+"蓝牙 / 耳机":"Bluetooth / Headset","断开自动暂停":"Pause on disconnect","重新连上继续播放":"Resume on reconnect","音效":"FX","原声":"Original","低音增强":"Bass Boost","流行":"Pop","摇滚":"Rock","古典":"Classical","电子":"Electronic","人声清晰":"Vocal Clarity","高音增强":"Treble Boost","音质":"Quality","自动（默认）":"Auto (Default)","SQ 无损":"SQ Lossless","HQ 高品":"HQ High","柱状":"Bars","歌词":"Lyrics","展开 ▾":"Expand ▾","收起 ▴":"Collapse ▴","在线匹配歌词":"Match Lyrics Online","暂无歌词":"No lyrics","打开 .lrc 歌词文件":"Open .lrc lyrics file","播放列表":"Playlist","1 首":"1 track","全部 ▾":"All ▾","默认歌单":"Default Playlist","+ 新建":"+ New","重命名":"Rename","删除":"Delete","+ 添加本地音乐":"+ Add Local Music","清空":"Clear","导出歌单":"Export Playlist","导入歌单":"Import Playlist","拖到此":"Drag here,","，或点「添加本地音乐」":"or click \"Add Local Music\"","◀ 上一页":"◀ Prev","下一页 ▶":"Next ▶","撤销":"Undo","收起":"Collapse","本机保存·无需密码":"Saved locally · no password","头像（点击圆形选择图片，可拖动位置并缩放后裁成圆形）":"Avatar (click the circle to pick an image; drag and zoom, then crop to a circle)","换头像":"Change Avatar","选择图片":"Choose Image","移除头像":"Remove Avatar","仅在本机保存，跟随当前用户。":"Saved on this device only, per user.","昵称（点击右侧 ✏️ 或直接双击名字可修改当前用户的名字）":"Nickname (click ✏️ or double-click the name to rename)","改名后歌单、头像等设置均不受影响；昵称不可为空、不可与已有用户重复。":"Renaming keeps playlists, avatar and settings. The name cannot be empty or duplicate an existing user.","切换用户（在下拉框选择用户后，可点「删除」移除该用户）":"Switch User (pick a user, then Delete to remove)","切换":"Switch","新建用户（昵称）":"New User (Nickname)","创建":"Create","数据备份（文件名带当前用户名，多人不混）":"Data Backup (filename includes the current user)","清除":"Clear","网页播放器文件":"Player File","下载当前网页播放器（.html），保存到本机即可离线使用。":"Download this player (.html) and keep it for offline use.","快速上手":"Quick Start","点右上角「全屏」可让播放器铺满整块屏幕，再点一次或按 ESC 退出。":"Click \"Fullscreen\" (top right) to fill the screen; click again or press ESC to exit.","点标题栏「用户」打开档案页，输入昵称即可「新建用户」，多人互不干扰。":"Open the profile page via the \"User\" button; type a nickname and \"Create\" a new user. Each user keeps separate data.","点圆形头像区可换头像，弹窗里可拖动位置、滚轮或双指缩放，再确认裁剪成圆形；「修改昵称」可给当前用户改名，「删除」可移除某用户。":"Click the round avatar to change it: drag, wheel/pinch to zoom, then confirm the circular crop. You can also rename or remove users there.","昵称行点右侧 ✏️ 或直接双击名字即可改名；点 ↺ 可将当前用户重置为默认昵称「访客」。":"Click ✏️ (or double-click the name) to rename; tap ↺ to reset the current user to the default name \"Guest\".","拖拽本地音乐或 .lrc 歌词到列表即可播放。":"Drag local music or .lrc lyrics onto the list to play. Use \"Download this player file\" to export an offline copy.","下载在线歌曲：长按那一行选「下载」，或点行末的下载小按钮。播放过的歌直接用播放时的缓存出文件；没播过的会重新取链接，抓到的一定是真音频（不是音频就报错，不会存下打不开的假文件）。":"Downloading online songs: long-press the row and choose \"Download\", or use the small download button. Played songs reuse the playback cache; unplayed songs fetch a fresh link and are verified as real audio.","点歌单里的一行就直接播放。想处理某一首歌：在它那行上按住不放约 0.3 秒（电脑约 0.4 秒），会弹出小菜单，里面有「播放」「下载」「移除」三个键，点「移除」即删掉这首歌，底部 6 秒内还能点「撤销」原样还原。菜单外面随便点一下、按 ESC 或滚动列表都会收起菜单。":"Double-click a row to play. Long-press a row (~0.3s) for a small menu with Play / Download / Remove. Removed songs can be restored via \"Undo\" within 6 seconds. Click outside, press ESC or scroll to dismiss the menu.","「清空」会先弹出确认框列出整单歌曲，清空后同样 6 秒内可撤销。行末的下载小按钮（鼠标悬停出现）点一下就下载，不参与长按。":"\"Clear\" first shows a confirmation listing all songs; clearing can also be undone within 6 seconds. The hover download button downloads instantly and does not trigger the long-press menu.","常见问题":"FAQ","关于":"About","数据存在哪里？":"Where is my data stored?","全部自动保存在本机，不上传网络；用户、歌单与设置退出后原样恢复。":"Everything is saved automatically on this device, nothing is uploaded. Users, playlists and settings are restored as-is after restart.","如何换头像 / 改名？":"How to change avatar / rename?","都在「用户」档案页里完成：选图后可拖动位置、滚轮或双指缩放，点金色 ✓ 圆形按钮确认裁圆；改名不影响已有歌单。":"All in the \"User\" profile page: pick an image, drag and zoom, then confirm the circular crop with the golden ✓ button. Renaming does not affect playlists.","如何删除用户？":"How to delete a user?","在「切换用户」下拉里选中该用户，再点红色「删除」按钮，会连同其歌单与设置一并清除。":"Select the user in the \"Switch User\" dropdown, then click the red \"Delete\" button; their playlists and settings are removed too.","如何快速改名 / 重置昵称？":"How to quickly rename / reset nickname?","昵称行点右侧 ✏️ 或直接双击名字即可修改；点 ↺ 可把当前用户重置为默认昵称「访客」。":"Click ✏️ (or double-click the name) to edit; tap ↺ to reset to the default name \"Guest\".","想把歌词或频谱放大看？":"Want a bigger lyrics / spectrum view?","在频谱窗上双击 → 频谱全屏，底部会同时显示当前这句和下一句歌词（单击可切换频谱风格）；在歌词区双击 → 歌词全屏，整屏滚动显示尽量多的行，屏幕正中有一条时间线：按住歌词上下拖动即可定位，松手就跳到那句的时间，播放中会自动跟随并把当前句停在时间线上。两种全屏都可以再双击任意处退出，也可以按 ESC 退出。":"Double-click the spectrum for fullscreen spectrum (current and next lyric line at the bottom; click to cycle styles). Double-click the lyrics for fullscreen lyrics with a center timeline: drag up/down to seek, release to jump to that line. Double-click anywhere, press ESC or use \"Exit Fullscreen\" to leave.","歌词搜不到怎么办？":"Lyrics not found?","点「在线匹配歌词」，弹窗最上面就是关键词输入框，已预填歌名（自动去掉了「(Live)」「【…】」这类尾巴）。搜不到就直接改：只留歌名、或写成「歌名 歌手」、或换成原唱名，改完点「搜索歌词」或按回车重搜；想还原点「用回歌名」。搜不到时提示会把光标放回输入框并选中文字，直接打字就能覆盖。搜索走接口候选池，某个接口失效会自动换下一个。实在没有，仍可用「打开 .lrc 歌词文件」挂本地歌词。":"Click \"Match Lyrics Online\": the keyword box at the top is pre-filled with the song title. If nothing is found, edit the keywords (title only, \"title artist\", or the original singer) and search again; \"Use Song Title\" restores it. Search goes through the source pool and auto-switches when one fails. You can always load local lyrics via \"Open .lrc lyrics file\".","歌单很长，怎么翻到后面？":"The playlist is long — how to page through it?","列表默认每页 10 首，底部有「◀ 上一页 / 下一页 ▶」翻页条，中间显示当前第几页；切歌时列表会自动跳到正在播放那一页，所以播到第 30 首也能一眼看到它。想看全部就点列表右上的「全部」，展开时翻页条自动隐藏，点「收起」又回到分页并停在当前曲那一页。分页只是显示方式，行号仍是真实序号，点歌、长按菜单、移除都照常。":"The list shows 10 tracks per page with a ◀ Prev / Next ▶ bar below. Switching songs auto-jumps to the playing page. Click \"All ▾\" to expand everything; \"Collapse\" returns to paging at the current track. Paging is display-only — row numbers stay real and all actions work as usual.","怎么删除某一首歌？":"How to remove a single song?","在那一行上按住约 0.3 秒（电脑约 0.4 秒）弹出小菜单，点红色的「移除」。按住了但手指/鼠标只要移动超过一点点，就还是正常滚动或点歌，不会误弹菜单。":"Long-press the row (~0.3s, ~0.4s on desktop) to open the menu and tap the red \"Remove\". If your finger moves more than a little, it stays normal scrolling — no accidental menu.","删歌会不会手滑删掉？":"Can I remove a song by accident?","不容易。移除后底部会出现「已移除「歌名」· 6 秒内可撤销」，点「撤销」整首原样回到原来的位置；如果删的正好是正在播放的那首，会自动停止播放，撤销后高亮也回到它身上（不会自己出声）。「清空」另有确认框，列出整单歌名，确认后同样 6 秒内可撤销。":"Unlikely. After removal a bar shows \"Removed … · undo within 6s\"; \"Undo\" restores it in place. If it was playing, playback stops and the highlight returns after undo. \"Clear\" has its own confirmation and is also undoable for 6 seconds.","哪些设置会被记住？":"Which settings are remembered?","皮肤外观、音量、随机播放、循环模式、音效预设与开关、频谱风格（霓虹/极光/星环/烈焰/星粒）、在线音质、当前歌单与列表位置，以及歌单「全部」和歌词「展开」这两个开关，都会按用户分别自动保存。注意：自动保存只存设置与在线曲目，本地音乐本体不进自动保存（刷新后需重新挂载）。":"Skin, volume, shuffle, loop mode, FX preset and switch, spectrum style, online quality, current playlist and position, plus the \"All\" and \"Expand\" toggles — all saved per user and included in the \"Export all data\" backup. Browser auto-save keeps settings and online tracks only (local files must be re-mounted after refresh); \"Export all data\" embeds local music into the backup for a full restore.","下载在线歌曲得到的是打不开的文件？":"Downloaded online songs won't open?","已经不会再出现了。播放器在放歌时就会把真实音频抓在手里（放歌需要它接频谱），点「下载」直接用这份缓存出文件，不额外耗流量；没播过的歌会先按当前音质换一个新链接再抓，并且会校验抓回来的确实是音频 —— 接口返回的错误页（HTML/JSON）会被判为假数据直接拒存，并提示你先播放一次再下载。":"This no longer happens. Played songs download straight from the playback cache; unplayed ones fetch a fresh link by current quality and the result is verified as real audio — error pages (HTML/JSON) are rejected and you are asked to play once first.","以后接口地址变了怎么办？":"What if API URLs change?","不用手动一个个试。播放器内置了接口候选池，搜索或取播放地址失败时会自动往下一个接口试，试到能用的就记住，下次打开直接用；点「自动换源搜索」可立刻逐个探测。要是全部失效，点右上「API源」，把新地址（一行一个，可一次贴多个）粘进去点「Add & Probe」，可用的会自动加入并记住，「Clear Custom」可恢复成内置那几个。":"You don't need to test manually. The built-in source pool auto-tries the next API on failure and remembers working ones. If all fail, open \"API Sources\" (top right), paste new URLs (one per line) and click \"Add & Probe\"; \"Clear Custom\" restores the built-ins. The panel shows each source as \"in use / standby\" and \"ok / dead\".","接口全挂了，能自动更新吗？":"All sources dead — can they be updated automatically?","能。点右上「API源」，在\"订阅清单地址\"里填一个 .json 直链，点「拉取订阅」：播放器会把清单里的接口地址全部导入、逐个探测，能用的自动记住并切过去，下次开机直接用。清单文件哪来的？点旁边的「导出清单」就能生成一份当前清单（JSON），你把它放到网盘直链、代码仓库或自己的站点上即可；以后谁更新了那份文件，你这边点一下就同步。出于安全考虑，清单里如果混着 .js 插件脚本，会被直接跳过——播放器不会加载执行来路不明的代码。":"Yes. Open \"API Sources\", enter a direct .json feed URL and click \"Fetch Feed\": all URLs are imported and probed, working ones remembered. Click \"Export List\" to generate your own feed (JSON) to host anywhere; re-fetching syncs updates. For safety, .js plugin scripts inside a feed are skipped — unknown code is never executed.","反馈与留言":"Feedback & Comments","遇到问题、想要新功能，或者想留句话？欢迎到 GitHub 留言，全球用户都能看到和回复。":"Found a bug, want a new feature, or just want to say hi? Leave a message on GitHub — users around the world can see and reply.","提个问题 / 留言":"Report an issue / Leave a message","看看别人说了什么":"See what others said","项目主页":"Project home","如何离线保存播放器？":"How to save the player offline?","档案页底部「下载这个播放器文件」可导出当前 .html，双击即可离线运行。":"Use \"Download this player file\" at the bottom of the profile page to export the .html; double-click it to run offline.","退出全屏":"Exit Fullscreen","确认":"Confirm","取消":"Cancel","搜索歌词":"Search Lyrics","用回歌名":"Use Song Title","正在搜索…":"Searching…","拖动移动 · 滚轮/双指缩放":"Drag to move · Wheel/pinch to zoom","缩小":"Zoom out","放大":"Zoom in","按住图片拖动可以把人脸对准圆形选区，滚轮、双指或下方滑杆可缩放；圆圈内即为最终头像。":"Drag the image to center the face in the circle; zoom with wheel, pinch or the slider below. Inside the circle is the final avatar.","已自动恢复本地数据":"Local data restored","本地":"Local","在线":"Online","加载中…":"Loading…","搜索中…":"Searching…","无结果 —— 改个关键词再搜，或用「打开 .lrc 歌词文件」":"No results — try other keywords, or \"Open .lrc lyrics file\"",
 "排行榜":"Charts","音乐排行榜：把榜单歌曲加入歌单播放":"Music charts: add chart songs to a playlist","榜单来源":"Source","网易云（官方榜单）":"NetEase (official charts)","酷狗（官方榜单）":"Kugou (official charts)","↻ 刷新":"↻ Refresh","强制刷新（忽略当天缓存）":"Force refresh (ignore today's cache)","全部加入歌单":"Add All","把当前榜单全部歌曲加入当前歌单（自动跳过已有）":"Add every song of this chart to the current playlist (duplicates skipped)","加入当前歌单":"Add to current playlist","加入歌单后点歌即可播放：播放器会自动搜索这首歌，接上现有的播放、缓存、歌词链路；重复的歌会自动跳过。":"After adding, tap a song to play: the player searches for it automatically and reuses the usual playback, caching and lyrics pipeline; duplicates are skipped.",
 "刷新中…":"Refreshing…","正在获取榜单列表…":"Fetching charts…","榜单暂时不可用，稍后再试或点「↻ 刷新」重试":"Charts unavailable right now — try again later or tap \"↻ Refresh\"","没有可加入的歌曲":"Nothing to add","当前榜单还没有可用曲目":"This chart has no songs yet",
+/* ---- v1.8.20 更新通道（正式版 / 测试版） ---- */
+"更新通道":"Channel","正式版":"Stable","测试版":"Beta",
+"测试版更新更早，可能不稳定；用一阵没问题再转正式版":"Beta builds arrive earlier and may be unstable; switch back to Stable once they prove fine",
+"正式版更稳；想尝鲜可以切到测试版":"Stable builds are safer; switch to Beta to try new features early",
+"已切到测试版通道（更新更早，可能不稳定）":"Switched to Beta channel (earlier updates, possibly unstable)",
+"已切到正式版通道（更稳定）":"Switched to Stable channel (safer)",
+"已是最新版本 v":"Already up to date — v","当前没有更新的测试版。":"No newer beta build right now.",
+"无法连接测试版更新服务器。":"Could not reach the beta update server.",
   /* ---- v1.3.30 新增：均衡器/界面补漏 ---- */
   "自定义":"Custom","均衡":"EQ","均衡器":"Equalizer","拖动滑块实时生效":"Sliders apply in real time",
   "前级增益":"Preamp","全部归零":"Reset All","保存为自定义":"Save as Custom",
@@ -6960,6 +7153,9 @@ window.__wm={
     /* 动态组合文案：「N 首」「第 N 页 / 共 M 页」 */
     var mm=core.match(/^(\d+) 首$/);
     if(mm) return mm[1]+(mm[1]==='1'?' track':' tracks');
+    /* 缓冲百分比：「缓冲中 43%」（巡检实时写入，v1.8.20-beta2） */
+    var mbf=core.match(/^缓冲中(?:…| (\d+)%)$/);
+    if(mbf) return mbf[1]===undefined?'Buffering…':'Buffering '+mbf[1]+'%';
     /* 排行榜（v1.8.19）：榜单名/歌名是接口返回的数据，保留原文，只翻句式 */
     var mc=core.match(/^取到 (\d+) 首：点行末「＋」单首加入，或直接「全部加入歌单」$/);
     if(mc) return mc[1]+' songs loaded: tap "＋" on a row to add one, or "Add All"';
@@ -6980,6 +7176,8 @@ window.__wm={
     var ms=core.match(/^第 (\d+) 页$/);
     if(ms) return 'Page '+ms[1];
     if(/^当前 v/.test(core)) return core.replace(/^当前 /,'Current ');
+    /* 「已是最新版本 v1.8.20-beta1」——带版本号，按前缀翻 */
+    if(/^已是最新版本 v/.test(core)) return core.replace(/^已是最新版本 v/,'Already up to date — v');
     /* 缓存用量：「12.3 MB · 8 首」/「清空所有已缓存的音频（12.3 MB · 8 首）？…」 */
     if(/\d+\s?(KB|MB|GB|B) · \d+ 首/.test(core)){
       return core
