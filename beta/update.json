@@ -1,0 +1,15 @@
+{
+  "version": "1.8.20-beta1",
+  "code": 84,
+  "channel": "beta",
+  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.8.20-beta1/winamper-gold-v1.8.20-beta1.apk",
+  "notes": [
+    "更新通道分流：测试版与正式版分开走",
+    "- 版本弹窗新增「更新通道」切换：正式版 / 测试版，随时可来回切",
+    "- 测试版更新更早，但可能不稳定；稳定后提升为正式版，测试版用户会收到升级提示",
+    "- 测试版发布用预发布（prerelease）标记，正式版用户不会误收到测试版推送",
+    "- 音效/音质下拉的展开列表补了字号与行高（此前用系统默认大字号）",
+    "- 版本弹窗「检查更新/复制下载链接」补主题配色（此前是白底默认样式）"
+  ],
+  "page": "https://asirshop.github.io/winamper-player/beta/"
+}
