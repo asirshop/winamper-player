@@ -709,7 +709,7 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 /* ===== 标题栏：三排布局 =====
    第一排：品牌 + 帮助/语言（右）
    第二排：用户档案
-   第三排：打开音乐 / 在线搜索 / 外观 / 退出 */
+   第三排：打开音乐 / 在线搜索 / 排行榜 / 外观 / 退出 */
 .titlebar{ display:flex; flex-direction:column; align-items:stretch; gap:7px; padding:9px 12px 10px; }
 .logo-badge{ font:700 11px/1 Arial,Helvetica,sans-serif; color:#ffd76b; letter-spacing:.5px;
   padding:3px 7px; border:1px solid rgba(255,215,107,.55); border-radius:6px; white-space:nowrap;
@@ -728,6 +728,36 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
 .ver-list b{ color:var(--accent-hi); }
 .ver-tag{ display:inline-block; font:700 10px/1 Consolas,monospace; color:#0b0d12; background:var(--accent-hi);
   padding:2px 5px; border-radius:4px; margin-right:6px; vertical-align:1px; }
+
+/* ===== 排行榜弹窗（v1.8.15） ===== */
+.chart-top{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.chart-top label{ font-size:12px; color:var(--txt-dim); white-space:nowrap; }
+.chart-top select{ flex:0 1 auto; min-width:0; font-family:inherit; font-size:12px; padding:4px 6px;
+  background:var(--btn-bg); color:var(--txt); border:1px solid var(--chrome-edge); border-radius:5px; }
+.chart-top button{ white-space:nowrap; }
+.chart-tabs{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; max-height:76px; overflow:auto; }
+.chart-tabs button{ font-family:inherit; font-size:11px; font-weight:600; padding:5px 9px; cursor:pointer;
+  color:var(--txt); background:var(--btn-bg); border:1px solid var(--chrome-edge); border-radius:5px;
+  white-space:nowrap; box-shadow: inset 0 1px 0 var(--bevel-hi), 0 1px 0 #000; }
+.chart-tabs button:hover{ filter:brightness(1.12); }
+.chart-tabs button.on{ color:var(--accent-hi);
+  border-color:color-mix(in srgb, var(--accent-hi) 70%, var(--chrome-edge)); }
+.chart-tools{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.chart-status{ flex:1; min-width:0; font-size:11px; line-height:1.5; color:var(--txt-dim); }
+.chart-tools button{ white-space:nowrap; }
+.chart-list{ max-height:min(46vh,380px); overflow:auto; overscroll-behavior:contain;
+  border:1px solid rgba(255,255,255,.08); border-radius:6px; background:rgba(0,0,0,.15); }
+.chart-row{ display:flex; align-items:center; gap:8px; padding:6px 8px;
+  border-bottom:1px solid rgba(255,255,255,.05); }
+.chart-row:last-child{ border-bottom:none; }
+.chart-row .cr-idx{ flex:none; width:24px; text-align:right; font:700 11px/1 Consolas,Menlo,monospace; color:var(--txt-dim); }
+.chart-row.cr-top .cr-idx{ color:var(--accent-hi); }
+.chart-row .cr-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; }
+.chart-row .cr-art{ flex:0 1 auto; min-width:0; max-width:34%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--txt-dim); }
+.chart-row .cr-add{ flex:none; width:26px; height:22px; line-height:1; font-size:14px; font-weight:700; cursor:pointer;
+  color:var(--accent-hi); background:var(--btn-bg); border:1px solid var(--chrome-edge); border-radius:5px; padding:0; }
+.chart-row .cr-add:disabled{ color:var(--txt-dim); cursor:default; filter:none; }
+.chart-hint{ font-size:11px; line-height:1.7; color:var(--txt-dim); margin:8px 0 0; }
 
 /* ===== 反馈与留言（帮助弹窗内） ===== */
 .fb-box { margin-top: 6px; padding: 10px; border: 1px solid var(--chrome-edge); border-radius: 6px;
@@ -1157,13 +1187,16 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg><img class="uavatar" id="uAvatar" alt="头像"><span class="uname" id="unameBtn">访客</span>
       </button>
     </div>
-    <!-- 第三排：打开音乐 / 在线搜索 / 外观 / 退出 -->
+    <!-- 第三排：打开音乐 / 在线搜索 / 排行榜 / 外观 / 退出 -->
     <div class="actions">
       <button id="btnMusic" title="打开本地音乐文件（mp3/flac/wav/m4a/ogg）">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>打开音乐
       </button>
       <button id="btnSearch" class="act-toggle" title="在线搜索并播放歌曲（点击展开/收起）" aria-expanded="false">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-4.3-4.3"></path></svg>在线搜索
+      </button>
+      <button id="btnChart" title="音乐排行榜：把榜单歌曲加入歌单播放">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 20v-9M12 20V4M19 20v-6"></path></svg>排行榜
       </button>
       <span class="skin-box" title="切换皮肤主题">
         <label class="skin-label" for="skinSel">外观</label>
@@ -1406,6 +1439,35 @@ body.maxing .top-nav { display: none; }   /* 全屏时右上角那两颗按钮�
         </div>
       </div>
       <div id="verBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 排行榜弹窗 ============ -->
+<div class="modal-mask" id="chartMask">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 20v-9M12 20V4M19 20v-6"></path></svg>
+      排行榜<span class="mh-sub" id="chartSub"></span>
+      <span class="sp"></span>
+      <button id="btnCloseChart" aria-label="关闭"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="chart-top">
+        <label for="chartSrcSel">榜单来源</label>
+        <select id="chartSrcSel" aria-label="选择榜单来源">
+          <option value="netease">网易云（官方榜单）</option>
+          <option value="kugou">酷狗（官方榜单）</option>
+        </select>
+        <button id="btnChartRefresh" title="强制刷新（忽略当天缓存）" style="font-family:inherit;font-size:12px;padding:5px 10px">↻ 刷新</button>
+      </div>
+      <div class="chart-tabs" id="chartTabs"></div>
+      <div class="chart-tools">
+        <span id="chartStatus" class="chart-status"></span>
+        <button id="btnChartAddAll" style="font-family:inherit;font-size:12px;padding:5px 10px" title="把当前榜单全部歌曲加入当前歌单（自动跳过已有）">全部加入歌单</button>
+      </div>
+      <div class="chart-list" id="chartList"></div>
+      <p class="chart-hint">加入歌单后点歌即可播放：播放器会自动搜索这首歌，接上现有的播放、缓存、歌词链路；重复的歌会自动跳过。</p>
     </div>
   </div>
 </div>
@@ -3398,6 +3460,12 @@ async function loadTrack(idx){
   audio.removeAttribute('src'); audioO.removeAttribute('src'); audioB.removeAttribute('src');
   if(tr.kind==='local'&&tr.file){ localObjUrl=URL.createObjectURL(tr.file); audio.src=localObjUrl; setActive(audio); }
   else{
+    if(!tr.url&&!(tr.meta&&tr.meta.id)&&tr.name){
+      /* 榜单加入的歌只有「歌名+歌手」：第一次播放前先按名搜索补全链接（v1.8.15） */
+      const okName=await resolveTrackByName(tr);
+      if(state.track!==idx) return;              /* 等待搜索期间用户已切歌 */
+      if(!okName) return;                        /* 没搜到：提示已弹，不往下走 */
+    }
     let url=tr.url||'';
     /* ★ 先看本地缓存：命中就直接出声，不问接口要链接、不花一分流量 */
     const dk=diskKey(tr, effQuality());
@@ -4657,9 +4725,18 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.14';
-const APP_CODE = 78;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.15';
+const APP_CODE = 79;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.15', code:79, date:'2026-11-07', notes:[
+    '新增「排行榜」：权威榜单一键加入歌单',
+    '- 第三排新增「排行榜」按键（打开音乐/在线搜索/排行榜/外观/退出 五键一排）',
+    '- 弹窗可选榜单来源：网易云、酷狗（均取官方榜单接口），含热歌/新歌/飙升等几十个榜',
+    '- 榜单可单首加入或全部加入歌单，重复的歌自动跳过',
+    '- 加入的歌只有歌名和歌手，点歌播放时会自动搜索这首歌，接上现有播放/缓存/歌词链路',
+    '- 榜单数据按天缓存，同一天内不重复请求；APK 内走原生通道直连，不受浏览器跨域限制',
+    '- 「清空缓存」等原有功能不受影响'
+  ]},
   { v:'1.8.14', code:78, date:'2026-11-07', notes:[
     '- 加固：歌词改存 IndexedDB 独立空间，不再挤占歌单/设置共用的 localStorage 配额',
     '- 收藏几百上千首的歌词也不会再撑爆存储、连累歌单和设置保存失效',
@@ -5459,6 +5536,7 @@ document.addEventListener('keydown',function(e){
   var mx=$('maxMask'); if(mx&&mx.classList.contains('show')){ closeMax(); return; }
   var a=$('askMask'); if(a&&a.classList.contains('show')){ askClose(); return; }
   var hm=$('helpMask'); if(hm&&hm.classList.contains('show')) hm.classList.remove('show');
+  var cm=$('chartMask'); if(cm&&cm.classList.contains('show')) cm.classList.remove('show');
 });
 
 /* 数据备份：整个流程包在 try/catch 里，任何一步失败都会给出明确提示，不再"点了没反应" */
@@ -6139,9 +6217,9 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
   }
   /* 顶栏精简：
      横屏时顶栏只保留「品牌 · 语言 · 帮助 · 用户 · 退出」，
-     「打开音乐 / 在线搜索 / 皮肤」搬到左列控制区顶部的工具条，避免一排挤 8 个按钮。
+      「打开音乐 / 在线搜索 / 排行榜 / 皮肤」搬到左列控制区顶部的工具条，避免一排挤 8 个按钮。
      退出键搬到顶栏最末尾（贴最右），位置固定好按；竖屏全部原样放回。 */
-  const MOVE_IDS=['btnMusic','btnSearch'];
+  const MOVE_IDS=['btnMusic','btnSearch','btnChart'];
   function syncHeader(){
     const bar=document.querySelector('.titlebar');
     const acts=document.querySelector('.titlebar .actions') || document.querySelector('.actions');
@@ -6163,11 +6241,12 @@ winampEl.addEventListener('drop',e=>{ e.preventDefault(); const files=e.dataTran
       /* 操作组空了就藏起来，别留一条空白占位 */
       acts.style.display = acts.children.length ? '' : 'none';
     }else{
-      /* 竖屏：全部放回操作组，按原顺序：打开音乐 → 在线搜索 → 皮肤 → 退出。
+      /* 竖屏：全部放回操作组，按原顺序：打开音乐 → 在线搜索 → 排行榜 → 皮肤 → 退出。
          这里必须先取一次元素（skinBox 可能已被搬到工具条，再查询就查不到了）。 */
-      var m=document.getElementById('btnMusic'), s2=document.getElementById('btnSearch');
+      var m=document.getElementById('btnMusic'), s2=document.getElementById('btnSearch'), c3=document.getElementById('btnChart');
       if(m&&m.parentElement!==acts) acts.appendChild(m);
       if(s2&&s2.parentElement!==acts) acts.appendChild(s2);
+      if(c3&&c3.parentElement!==acts) acts.appendChild(c3);
       if(skinBox&&skinBox.parentElement!==acts) acts.appendChild(skinBox);
       if(exit&&exit.parentElement!==acts) acts.appendChild(exit);
       acts.style.display='';
@@ -6304,6 +6383,211 @@ setTimeout(autoCheckUpdate, 2500);        /* 静默检查更新：只在设置�
 
 /* 调试/自动化测试入口：把内部函数挂出去，冒烟脚本才能验证缓存等内部行为。
    只读挂载，不改变任何运行逻辑，普通用户不会感知。 */
+/* ================= 排行榜（v1.8.15） =================
+   只取「歌名 + 歌手」这类公开元数据；点播时走现有搜索接口拿播放链接，
+   与手动搜索同一条链路，不新增播放面。
+   数据源：网易云 / 酷狗 官方网页接口。这两家都不带 CORS 头：
+   APK 里走原生 HttpPlugin（HttpURLConnection，无跨域限制，最稳）；
+   网页版依次试 直连 → allorigins 代理。榜单一天一更，取到就按天缓存。 */
+const CHART_KEY='winamp_chart_v1';
+const CHART_SRCS={
+  netease:{ name:'网易云',
+    listUrl:'https://music.163.com/api/toplist',
+    parseList:function(j){ return (((j||{}).list)||[]).map(function(x){
+        return {id:String(x.id||''),name:x.name||'',sub:x.updateFrequency||''}; })
+      .filter(function(x){ return x.id&&x.name; }); },
+    songsUrl:function(id){ return 'https://music.163.com/api/playlist/detail?id='+encodeURIComponent(id); },
+    parseSongs:function(j){ return ((((j||{}).result||{}).tracks)||[]).map(function(t){
+        return {name:t.name||'',art:((t.artists||[]).map(function(a){return a.name||'';}).filter(Boolean).join('/'))}; })
+      .filter(function(t){ return t.name; }); } },
+  kugou:{ name:'酷狗',
+    listUrl:'http://mobilecdn.kugou.com/api/v3/rank/list?format=json',
+    parseList:function(j){ return (((((j||{}).data)||{}).info)||[]).map(function(x){
+        return {id:String(x.rankid||''),name:x.rankname||'',sub:''}; })
+      .filter(function(x){ return x.id&&x.name; }); },
+    songsUrl:function(id){ return 'http://mobilecdn.kugou.com/api/v3/rank/song?rankid='+encodeURIComponent(id)+'&page=1&pagesize=100'; },
+    parseSongs:function(j){ return (((((j||{}).data)||{}).info)||[]).map(function(t){
+        var nm=t.songname||(t.filename||'').split(' - ').slice(1).join(' - ')||t.filename||'';
+        var ar=(t.authors||[]).map(function(a){return a.author_name||'';}).filter(Boolean).join('/')
+              ||String(t.filename||'').split(' - ')[0]||'';
+        return {name:nm,art:ar}; })
+      .filter(function(t){ return t.name; }); } }
+};
+let chartSrcId='netease', chartCharts=[], chartCur='', chartSongs=[], chartReq=0;
+function chartPlugin(){ try{ if(window.Capacitor&&Capacitor.Plugins&&Capacitor.Plugins.HttpPlugin) return Capacitor.Plugins.HttpPlugin; }catch(e){} return null; }
+async function chartHttp(url){
+  if(window.__mockChartHttp) return window.__mockChartHttp(url);
+  /* 1) APK：原生桥，没有跨域一说 */
+  try{
+    const p=chartPlugin();
+    if(p&&p.get){ const r=await p.get({url:url}); const t=(r&&(r.text||''))||''; if(t) return JSON.parse(t); }
+  }catch(e){}
+  /* 2) 网页：先试直连（万一环境不拦），失败走公共代理 */
+  try{
+    const ac=new AbortController(); const t0=setTimeout(function(){ac.abort();},9000);
+    const r=await fetch(url,{mode:'cors',signal:ac.signal}); clearTimeout(t0);
+    if(r.ok) return await r.json();
+  }catch(e){}
+  const proxies=['https://api.allorigins.win/raw?url=','https://api.allorigins.win/get?url='];
+  for(let i=0;i<proxies.length;i++){
+    try{
+      const r=await fetch(proxies[i]+encodeURIComponent(url),{mode:'cors'});
+      if(!r.ok) continue;
+      let t=await r.text();
+      if(i===1){ const j=JSON.parse(t); t=(j&&j.contents)||''; }
+      if(t) return JSON.parse(t);
+    }catch(e){}
+  }
+  return null;
+}
+function chartCacheLoad(){ try{ return JSON.parse(localStorage.getItem(CHART_KEY))||{}; }catch(e){ return {}; } }
+function chartCacheGet(key,maxAge){
+  const e=chartCacheLoad()[key];
+  if(e&&e.ts&&Array.isArray(e.data)&&Date.now()-e.ts<maxAge) return e.data;
+  return null;
+}
+function chartCachePut(key,data){
+  try{
+    const c=chartCacheLoad(); c[key]={ts:Date.now(),data:data};
+    const ks=Object.keys(c);
+    if(ks.length>40){ ks.sort(function(a,b){ return (c[a].ts||0)-(c[b].ts||0); }).slice(0,ks.length-40).forEach(function(k){ delete c[k]; }); }
+    localStorage.setItem(CHART_KEY,JSON.stringify(c));
+  }catch(e){}
+}
+function chartStatus(s){ const el=$('chartStatus'); if(el) el.textContent=s||''; }
+function renderChartTabs(){
+  const box=$('chartTabs'); if(!box) return;
+  box.innerHTML='';
+  chartCharts.forEach(function(c){
+    const b=document.createElement('button');
+    b.type='button'; b.textContent=c.name; b.title=c.sub||c.name;
+    if(c.id===chartCur) b.classList.add('on');
+    b.addEventListener('click',function(){ chartSelect(c.id); });
+    box.appendChild(b);
+  });
+}
+function renderChartSongs(){
+  const box=$('chartList'); if(!box) return;
+  box.innerHTML='';
+  chartSongs.slice(0,200).forEach(function(t,i){
+    const row=document.createElement('div'); row.className='chart-row'+(i<3?' cr-top':'');
+    const idx=document.createElement('span'); idx.className='cr-idx'; idx.textContent=String(i+1);
+    const nm=document.createElement('span'); nm.className='cr-name'; nm.textContent=t.name; nm.title=t.name;
+    const ar=document.createElement('span'); ar.className='cr-art'; ar.textContent=t.art||''; ar.title=t.art||'';
+    const add=document.createElement('button'); add.className='cr-add'; add.textContent='＋'; add.title='加入当前歌单'; add.type='button';
+    add.addEventListener('click',function(ev){ ev.stopPropagation(); addChartSongs([t]); add.disabled=true; add.textContent='✓'; });
+    row.appendChild(idx); row.appendChild(nm); row.appendChild(ar); row.appendChild(add);
+    box.appendChild(row);
+  });
+  if(chartSongs.length>200){
+    const p=document.createElement('div'); p.className='chart-row';
+    p.style.color='var(--txt-dim)'; p.style.fontSize='11px';
+    p.textContent='… 仅展示前 200 首，「全部加入」仍会加入完整榜单';
+    box.appendChild(p);
+  }
+}
+async function chartLoadCharts(force){
+  const src=CHART_SRCS[chartSrcId]; if(!src) return;
+  const key='list:'+chartSrcId;
+  let list=force?null:chartCacheGet(key,24*3600*1000);
+  if(!list){
+    chartLoading=true;
+    chartStatus('正在获取榜单列表…');
+    const j=await chartHttp(src.listUrl);
+    chartLoading=false;
+    list=j?src.parseList(j):[];
+    if(list.length) chartCachePut(key,list);
+  }
+  chartCharts=list;
+  renderChartTabs();
+  if(!list.length){ chartStatus('榜单暂时不可用，稍后再试或点「↻ 刷新」重试'); return; }
+  const keep=list.some(function(c){ return c.id===chartCur; });
+  chartSelect(keep?chartCur:list[0].id, force);
+}
+async function chartSelect(id,force){
+  const src=CHART_SRCS[chartSrcId]; if(!src||!id) return;
+  const tok=++chartReq;                       /* 连续切换时只认最后一次 */
+  chartCur=id;
+  renderChartTabs();
+  const key='songs:'+chartSrcId+':'+id;
+  let songs=force?null:chartCacheGet(key,24*3600*1000);
+  if(!songs){
+    chartStatus('正在获取曲目…');
+    const box=$('chartList'); if(box) box.innerHTML='';
+    const j=await chartHttp(src.songsUrl(id));
+    if(tok!==chartReq) return;                /* 等待期间用户已切走 */
+    songs=j?src.parseSongs(j):[];
+    if(songs.length) chartCachePut(key,songs);
+  }
+  if(tok!==chartReq) return;
+  chartSongs=songs||[];
+  const c=chartCharts.filter(function(x){ return x.id===id; })[0]||{};
+  const sub=$('chartSub'); if(sub) sub.textContent=(c.name?c.name+' · ':'')+chartSongs.length+' 首';
+  renderChartSongs();
+  chartStatus(chartSongs.length
+    ? '取到 '+chartSongs.length+' 首：点行末「＋」单首加入，或直接「全部加入歌单」'
+    : '榜单暂时不可用，稍后再试或点「↻ 刷新」重试');
+}
+/* 加入当前歌单：去重按「歌名|歌手」；只存元数据，播放时现搜链接（见 loadTrack） */
+function addChartSongs(arr){
+  const pl=currentPl(); if(!pl) return 0;
+  const list=(arr||[]).filter(function(t){ return t&&t.name; });
+  if(!list.length){ toast('没有可加入的歌曲'); return 0; }
+  const have={};
+  pl.tracks.forEach(function(t){ have[(t.name||'')+'|'+(t.art||'')]=1; });
+  const add=[];
+  list.forEach(function(t){
+    const k=(t.name||'')+'|'+(t.art||'');
+    if(have[k]) return; have[k]=1;
+    add.push({name:t.name,art:t.art||'',url:'',kind:'online',from:'榜单'});
+  });
+  if(!add.length){ toast('这些歌都已在「'+pl.name+'」里，没有重复添加'); return 0; }
+  pl.tracks=pl.tracks.concat(add);
+  savePrefs(); renderPl(); updateDisplay();
+  toast('已加入 '+add.length+' 首到「'+pl.name+'」'+(add.length<list.length?'（'+(list.length-add.length)+' 首重复已跳过）':''),'ok');
+  return add.length;
+}
+/* 榜单/外来的「只有歌名」的曲目：播放前按名搜索补全链接与 meta（复用接口候选池） */
+async function resolveTrackByName(tr){
+  const kw=(tr.name||'')+(tr.art?' '+tr.art:'');
+  if(!kw.trim()) return false;
+  let list=[];
+  try{ list=await gdSearch(kw)||[]; }catch(e){}
+  if(!list.length){ toast('没找到「'+(tr.name||'')+'」的可播资源','err'); return false; }
+  const norm=s=>String(s||'').replace(/[（(【\[].*$/,'').replace(/[\s·\-_~]/g,'').toLowerCase();
+  const base=norm(tr.name);
+  const hit=list.find(x=>x.name&&norm(x.name)===base)||list[0];
+  if(hit.name) tr.name=hit.name;
+  if(!tr.art&&hit.art) tr.art=hit.art;
+  tr.meta=hit.meta||null;
+  tr.url=hit.url||'';
+  if(!tr.from) tr.from='榜单';
+  savePrefs();
+  return true;
+}
+function openChart(){
+  const mk=$('chartMask'); if(!mk) return;
+  mk.classList.add('show');
+  try{ mk.querySelector('.modal').scrollTop=0; }catch(e){}
+  if(!chartCharts.length&&!chartLoading) chartLoadCharts();   /* 失败过的榜单，重开弹窗会自动再试一次 */
+}
+let chartLoading=false;
+$('btnChart').addEventListener('click',openChart);
+$('btnCloseChart').addEventListener('click',()=>$('chartMask').classList.remove('show'));
+$('chartMask').addEventListener('click',e=>{ if(e.target===$('chartMask')) $('chartMask').classList.remove('show'); });
+$('chartSrcSel').addEventListener('change',e=>{
+  chartSrcId=e.target.value; chartCur=''; chartSongs=[]; chartReq++;
+  $('chartList').innerHTML=''; $('chartSub').textContent='';
+  renderChartTabs();
+  chartLoadCharts();
+});
+$('btnChartRefresh').addEventListener('click',function(){
+  chartCur=''; chartSongs=[]; chartReq++;
+  $('chartList').innerHTML=''; chartSub.textContent='';
+  chartLoadCharts(true);
+});
+$('btnChartAddAll').addEventListener('click',function(){ addChartSongs(chartSongs); });
+
 window.__wm={
   $:$, diskKey:diskKey, diskPut:diskPut, diskGet:diskGet, diskClear:diskClear,
   diskStat:diskStat, diskLimitBytes:diskLimitBytes, diskEvictOldest:diskEvictOldest,
@@ -6316,6 +6600,12 @@ window.__wm={
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
   /* 仅供测试：歌词持久化（v1.8.14） */
   lyricKey:lyricKey, lyricPut:lyricPut, lyricGet:lyricGet, migrateLyrics:migrateLyrics,
+  /* 仅供测试：排行榜（v1.8.15） */
+  chartHttp:chartHttp, chartLoadCharts:chartLoadCharts, chartSelect:chartSelect,
+  addChartSongs:addChartSongs, resolveTrackByName:resolveTrackByName,
+  get chartSongs(){ return chartSongs; }, get chartCharts(){ return chartCharts; },
+  __chartState:function(){ return {src:chartSrcId, cur:chartCur, nCh:chartCharts.length, nSg:chartSongs.length}; },
+  __chartCacheClear:function(){ try{ localStorage.removeItem(CHART_KEY); }catch(e){} },
   saveStore:saveStore, loadStore:loadStore, flushSave:flushSave,
   get plistsRaw(){ return plists(); },
   get diskOk(){ return diskOk; }
@@ -6330,6 +6620,7 @@ window.__wm={
 (function(){
   var S2T={"与":"與","丝":"絲","丢":"丟","两":"兩","个":"個","为":"爲","么":"麼","义":"義","乐":"樂","于":"於","仅":"僅","从":"從","仓":"倉","优":"優","会":"會","传":"傳","伦":"倫","体":"體","侧":"側","关":"關","内":"內","册":"冊","写":"寫","冲":"衝","决":"決","准":"準","几":"幾","击":"擊","则":"則","刚":"剛","创":"創","删":"刪","别":"別","办":"辦","务":"務","动":"動","势":"勢","区":"區","单":"單","占":"佔","历":"歷","压":"壓","参":"參","双":"雙","发":"發","变":"變","叠":"疊","台":"臺","号":"號","后":"後","吗":"嗎","听":"聽","启":"啓","响":"響","图":"圖","圆":"圓","块":"塊","声":"聲","处":"處","备":"備","复":"復","头":"頭","夹":"夾","实":"實","宽":"寬","对":"對","导":"導","将":"將","尘":"塵","尝":"嘗","尽":"盡","层":"層","峰":"峯","带":"帶","帧":"幀","帮":"幫","干":"幹","并":"並","库":"庫","应":"應","开":"開","异":"異","弃":"棄","弹":"彈","强":"強","当":"當","录":"錄","径":"徑","态":"態","恒":"恆","悬":"懸","户":"戶","执":"執","扩":"擴","扰":"擾","抛":"拋","报":"報","拦":"攔","择":"擇","挂":"掛","挡":"擋","挤":"擠","损":"損","换":"換","据":"據","摇":"搖","撑":"撐","数":"數","断":"斷","无":"無","旧":"舊","时":"時","昵":"暱","显":"顯","暂":"暫","机":"機","权":"權","条":"條","来":"來","杰":"傑","极":"極","构":"構","标":"標","栏":"欄","样":"樣","档":"檔","检":"檢","横":"橫","樱":"櫻","没":"沒","测":"測","浏":"瀏","涨":"漲","渐":"漸","滚":"滾","满":"滿","点":"點","热":"熱","状":"狀","独":"獨","环":"環","现":"現","电":"電","画":"畫","盖":"蓋","盘":"盤","码":"碼","确":"確","离":"離","种":"種","称":"稱","类":"類","紧":"緊","红":"紅","约":"約","级":"級","线":"線","组":"組","细":"細","终":"終","经":"經","结":"結","绘":"繪","给":"給","络":"絡","绝":"絕","统":"統","继":"繼","绪":"緒","续":"續","绿":"綠","缀":"綴","缓":"緩","编":"編","缝":"縫","缩":"縮","网":"網","联":"聯","肤":"膚","胀":"脹","脉":"脈","脑":"腦","脚":"腳","脸":"臉","节":"節","荐":"薦","获":"獲","蓝":"藍","虑":"慮","补":"補","装":"裝","见":"見","观":"觀","视":"視","览":"覽","觉":"覺","触":"觸","订":"訂","认":"認","让":"讓","记":"記","许":"許","设":"設","访":"訪","证":"證","识":"識","词":"詞","试":"試","该":"該","误":"誤","请":"請","读":"讀","谁":"誰","调":"調","谱":"譜","贝":"貝","败":"敗","质":"質","贴":"貼","费":"費","赖":"賴","车":"車","转":"轉","轮":"輪","载":"載","较":"較","辉":"輝","辐":"輻","辑":"輯","输":"輸","边":"邊","达":"達","过":"過","运":"運","还":"還","这":"這","进":"進","连":"連","适":"適","选":"選","逻":"邏","释":"釋","里":"裏","钉":"釘","钟":"鍾","钮":"鈕","铺":"鋪","链":"鏈","销":"銷","锁":"鎖","错":"錯","键":"鍵","长":"長","闪":"閃","闭":"閉","问":"問","间":"間","阅":"閱","阳":"陽","际":"際","险":"險","随":"隨","隐":"隱","静":"靜","页":"頁","顶":"頂","项":"項","顺":"順","须":"須","预":"預","频":"頻","颗":"顆","题":"題","额":"額","风":"風","驱":"驅","验":"驗","齐":"齊"};
   var EN={"WINAMPER 金玉版":"WINAMPER Gold","金玉版":"Gold","全屏":"Fullscreen","帮助":"Help","访客":"Guest","外观":"Skin","经典蓝":"Classic","极客绿":"Geek","暗夜紫":"Midnight","暖阳橙":"Sunset","樱花粉":"Sakura","打开音乐":"Open Music","在线搜索":"Search Online","保存并退出":"Save & Exit","退出":"Exit","免登录 · 直连公开接口":"No login · Public API","搜索":"Search","接口地址：":"API URL:","（失效会自动跳到下一个可用接口）":"(Failed sources auto-skip to the next)","添加并探测":"Add & Probe","探测全部接口":"Probe All","清空自定义":"Clear Custom","拉取订阅":"Fetch Feed","导出清单":"Export List","订阅清单只认「接口地址」，不会加载或执行清单里的 .js 插件脚本（避免执行来路不明的代码）。":"The feed only imports API URLs; .js plugin scripts inside it are never loaded or executed (for safety).","在线搜索依赖公开第三方接口，歌词不保证匹配、播放链接有时效；搜索失败可点「自动换源」，无法联网时请改用本地播放。":"Online search relies on public third-party APIs. Lyrics may not match and play URLs expire. If search fails, try \"Auto Switch Source\"; use local playback when offline.","未知歌手":"Unknown Artist","就绪":"Ready","音效":"FX","原声":"Original","低音增强":"Bass Boost","流行":"Pop","摇滚":"Rock","古典":"Classical","电子":"Electronic","人声清晰":"Vocal Clarity","高音增强":"Treble Boost","音质":"Quality","自动（默认）":"Auto (Default)","SQ 无损":"SQ Lossless","HQ 高品":"HQ High","柱状":"Bars","歌词":"Lyrics","展开 ▾":"Expand ▾","收起 ▴":"Collapse ▴","在线匹配歌词":"Match Lyrics Online","暂无歌词":"No lyrics","打开 .lrc 歌词文件":"Open .lrc lyrics file","播放列表":"Playlist","1 首":"1 track","全部 ▾":"All ▾","默认歌单":"Default Playlist","+ 新建":"+ New","重命名":"Rename","删除":"Delete","+ 添加本地音乐":"+ Add Local Music","清空":"Clear","导出歌单":"Export Playlist","导入歌单":"Import Playlist","拖到此":"Drag here,","，或点「添加本地音乐」":"or click \"Add Local Music\"","◀ 上一页":"◀ Prev","下一页 ▶":"Next ▶","撤销":"Undo","收起":"Collapse","本机保存·无需密码":"Saved locally · no password","头像（点击圆形选择图片，可拖动位置并缩放后裁成圆形）":"Avatar (click the circle to pick an image; drag and zoom, then crop to a circle)","换头像":"Change Avatar","选择图片":"Choose Image","移除头像":"Remove Avatar","仅在本机保存，跟随当前用户。":"Saved on this device only, per user.","昵称（点击右侧 ✏️ 或直接双击名字可修改当前用户的名字）":"Nickname (click ✏️ or double-click the name to rename)","改名后歌单、头像等设置均不受影响；昵称不可为空、不可与已有用户重复。":"Renaming keeps playlists, avatar and settings. The name cannot be empty or duplicate an existing user.","切换用户（在下拉框选择用户后，可点「删除」移除该用户）":"Switch User (pick a user, then Delete to remove)","切换":"Switch","新建用户（昵称）":"New User (Nickname)","创建":"Create","数据备份（文件名带当前用户名，多人不混）":"Data Backup (filename includes the current user)","清除":"Clear","网页播放器文件":"Player File","下载当前网页播放器（.html），保存到本机即可离线使用。":"Download this player (.html) and keep it for offline use.","快速上手":"Quick Start","点右上角「全屏」可让播放器铺满整块屏幕，再点一次或按 ESC 退出。":"Click \"Fullscreen\" (top right) to fill the screen; click again or press ESC to exit.","点标题栏「用户」打开档案页，输入昵称即可「新建用户」，多人互不干扰。":"Open the profile page via the \"User\" button; type a nickname and \"Create\" a new user. Each user keeps separate data.","点圆形头像区可换头像，弹窗里可拖动位置、滚轮或双指缩放，再确认裁剪成圆形；「修改昵称」可给当前用户改名，「删除」可移除某用户。":"Click the round avatar to change it: drag, wheel/pinch to zoom, then confirm the circular crop. You can also rename or remove users there.","昵称行点右侧 ✏️ 或直接双击名字即可改名；点 ↺ 可将当前用户重置为默认昵称「访客」。":"Click ✏️ (or double-click the name) to rename; tap ↺ to reset the current user to the default name \"Guest\".","拖拽本地音乐或 .lrc 歌词到列表即可播放。":"Drag local music or .lrc lyrics onto the list to play. Use \"Download this player file\" to export an offline copy.","下载在线歌曲：长按那一行选「下载」，或点行末的下载小按钮。播放过的歌直接用播放时的缓存出文件；没播过的会重新取链接，抓到的一定是真音频（不是音频就报错，不会存下打不开的假文件）。":"Downloading online songs: long-press the row and choose \"Download\", or use the small download button. Played songs reuse the playback cache; unplayed songs fetch a fresh link and are verified as real audio.","点歌单里的一行就直接播放。想处理某一首歌：在它那行上按住不放约 0.3 秒（电脑约 0.4 秒），会弹出小菜单，里面有「播放」「下载」「移除」三个键，点「移除」即删掉这首歌，底部 6 秒内还能点「撤销」原样还原。菜单外面随便点一下、按 ESC 或滚动列表都会收起菜单。":"Double-click a row to play. Long-press a row (~0.3s) for a small menu with Play / Download / Remove. Removed songs can be restored via \"Undo\" within 6 seconds. Click outside, press ESC or scroll to dismiss the menu.","「清空」会先弹出确认框列出整单歌曲，清空后同样 6 秒内可撤销。行末的下载小按钮（鼠标悬停出现）点一下就下载，不参与长按。":"\"Clear\" first shows a confirmation listing all songs; clearing can also be undone within 6 seconds. The hover download button downloads instantly and does not trigger the long-press menu.","常见问题":"FAQ","关于":"About","数据存在哪里？":"Where is my data stored?","全部自动保存在本机，不上传网络；用户、歌单与设置退出后原样恢复。":"Everything is saved automatically on this device, nothing is uploaded. Users, playlists and settings are restored as-is after restart.","如何换头像 / 改名？":"How to change avatar / rename?","都在「用户」档案页里完成：选图后可拖动位置、滚轮或双指缩放，点金色 ✓ 圆形按钮确认裁圆；改名不影响已有歌单。":"All in the \"User\" profile page: pick an image, drag and zoom, then confirm the circular crop with the golden ✓ button. Renaming does not affect playlists.","如何删除用户？":"How to delete a user?","在「切换用户」下拉里选中该用户，再点红色「删除」按钮，会连同其歌单与设置一并清除。":"Select the user in the \"Switch User\" dropdown, then click the red \"Delete\" button; their playlists and settings are removed too.","如何快速改名 / 重置昵称？":"How to quickly rename / reset nickname?","昵称行点右侧 ✏️ 或直接双击名字即可修改；点 ↺ 可把当前用户重置为默认昵称「访客」。":"Click ✏️ (or double-click the name) to edit; tap ↺ to reset to the default name \"Guest\".","想把歌词或频谱放大看？":"Want a bigger lyrics / spectrum view?","在频谱窗上双击 → 频谱全屏，底部会同时显示当前这句和下一句歌词（单击可切换频谱风格）；在歌词区双击 → 歌词全屏，整屏滚动显示尽量多的行，屏幕正中有一条时间线：按住歌词上下拖动即可定位，松手就跳到那句的时间，播放中会自动跟随并把当前句停在时间线上。两种全屏都可以再双击任意处退出，也可以按 ESC 退出。":"Double-click the spectrum for fullscreen spectrum (current and next lyric line at the bottom; click to cycle styles). Double-click the lyrics for fullscreen lyrics with a center timeline: drag up/down to seek, release to jump to that line. Double-click anywhere, press ESC or use \"Exit Fullscreen\" to leave.","歌词搜不到怎么办？":"Lyrics not found?","点「在线匹配歌词」，弹窗最上面就是关键词输入框，已预填歌名（自动去掉了「(Live)」「【…】」这类尾巴）。搜不到就直接改：只留歌名、或写成「歌名 歌手」、或换成原唱名，改完点「搜索歌词」或按回车重搜；想还原点「用回歌名」。搜不到时提示会把光标放回输入框并选中文字，直接打字就能覆盖。搜索走接口候选池，某个接口失效会自动换下一个。实在没有，仍可用「打开 .lrc 歌词文件」挂本地歌词。":"Click \"Match Lyrics Online\": the keyword box at the top is pre-filled with the song title. If nothing is found, edit the keywords (title only, \"title artist\", or the original singer) and search again; \"Use Song Title\" restores it. Search goes through the source pool and auto-switches when one fails. You can always load local lyrics via \"Open .lrc lyrics file\".","歌单很长，怎么翻到后面？":"The playlist is long — how to page through it?","列表默认每页 10 首，底部有「◀ 上一页 / 下一页 ▶」翻页条，中间显示当前第几页；切歌时列表会自动跳到正在播放那一页，所以播到第 30 首也能一眼看到它。想看全部就点列表右上的「全部」，展开时翻页条自动隐藏，点「收起」又回到分页并停在当前曲那一页。分页只是显示方式，行号仍是真实序号，点歌、长按菜单、移除都照常。":"The list shows 10 tracks per page with a ◀ Prev / Next ▶ bar below. Switching songs auto-jumps to the playing page. Click \"All ▾\" to expand everything; \"Collapse\" returns to paging at the current track. Paging is display-only — row numbers stay real and all actions work as usual.","怎么删除某一首歌？":"How to remove a single song?","在那一行上按住约 0.3 秒（电脑约 0.4 秒）弹出小菜单，点红色的「移除」。按住了但手指/鼠标只要移动超过一点点，就还是正常滚动或点歌，不会误弹菜单。":"Long-press the row (~0.3s, ~0.4s on desktop) to open the menu and tap the red \"Remove\". If your finger moves more than a little, it stays normal scrolling — no accidental menu.","删歌会不会手滑删掉？":"Can I remove a song by accident?","不容易。移除后底部会出现「已移除「歌名」· 6 秒内可撤销」，点「撤销」整首原样回到原来的位置；如果删的正好是正在播放的那首，会自动停止播放，撤销后高亮也回到它身上（不会自己出声）。「清空」另有确认框，列出整单歌名，确认后同样 6 秒内可撤销。":"Unlikely. After removal a bar shows \"Removed … · undo within 6s\"; \"Undo\" restores it in place. If it was playing, playback stops and the highlight returns after undo. \"Clear\" has its own confirmation and is also undoable for 6 seconds.","哪些设置会被记住？":"Which settings are remembered?","皮肤外观、音量、随机播放、循环模式、音效预设与开关、频谱风格（霓虹/极光/星环/烈焰/星粒）、在线音质、当前歌单与列表位置，以及歌单「全部」和歌词「展开」这两个开关，都会按用户分别自动保存。注意：自动保存只存设置与在线曲目，本地音乐本体不进自动保存（刷新后需重新挂载）。":"Skin, volume, shuffle, loop mode, FX preset and switch, spectrum style, online quality, current playlist and position, plus the \"All\" and \"Expand\" toggles — all saved per user and included in the \"Export all data\" backup. Browser auto-save keeps settings and online tracks only (local files must be re-mounted after refresh); \"Export all data\" embeds local music into the backup for a full restore.","下载在线歌曲得到的是打不开的文件？":"Downloaded online songs won't open?","已经不会再出现了。播放器在放歌时就会把真实音频抓在手里（放歌需要它接频谱），点「下载」直接用这份缓存出文件，不额外耗流量；没播过的歌会先按当前音质换一个新链接再抓，并且会校验抓回来的确实是音频 —— 接口返回的错误页（HTML/JSON）会被判为假数据直接拒存，并提示你先播放一次再下载。":"This no longer happens. Played songs download straight from the playback cache; unplayed ones fetch a fresh link by current quality and the result is verified as real audio — error pages (HTML/JSON) are rejected and you are asked to play once first.","以后接口地址变了怎么办？":"What if API URLs change?","不用手动一个个试。播放器内置了接口候选池，搜索或取播放地址失败时会自动往下一个接口试，试到能用的就记住，下次打开直接用；点「自动换源搜索」可立刻逐个探测。要是全部失效，点右上「API源」，把新地址（一行一个，可一次贴多个）粘进去点「Add & Probe」，可用的会自动加入并记住，「Clear Custom」可恢复成内置那几个。":"You don't need to test manually. The built-in source pool auto-tries the next API on failure and remembers working ones. If all fail, open \"API Sources\" (top right), paste new URLs (one per line) and click \"Add & Probe\"; \"Clear Custom\" restores the built-ins. The panel shows each source as \"in use / standby\" and \"ok / dead\".","接口全挂了，能自动更新吗？":"All sources dead — can they be updated automatically?","能。点右上「API源」，在\"订阅清单地址\"里填一个 .json 直链，点「拉取订阅」：播放器会把清单里的接口地址全部导入、逐个探测，能用的自动记住并切过去，下次开机直接用。清单文件哪来的？点旁边的「导出清单」就能生成一份当前清单（JSON），你把它放到网盘直链、代码仓库或自己的站点上即可；以后谁更新了那份文件，你这边点一下就同步。出于安全考虑，清单里如果混着 .js 插件脚本，会被直接跳过——播放器不会加载执行来路不明的代码。":"Yes. Open \"API Sources\", enter a direct .json feed URL and click \"Fetch Feed\": all URLs are imported and probed, working ones remembered. Click \"Export List\" to generate your own feed (JSON) to host anywhere; re-fetching syncs updates. For safety, .js plugin scripts inside a feed are skipped — unknown code is never executed.","反馈与留言":"Feedback & Comments","遇到问题、想要新功能，或者想留句话？欢迎到 GitHub 留言，全球用户都能看到和回复。":"Found a bug, want a new feature, or just want to say hi? Leave a message on GitHub — users around the world can see and reply.","提个问题 / 留言":"Report an issue / Leave a message","看看别人说了什么":"See what others said","项目主页":"Project home","如何离线保存播放器？":"How to save the player offline?","档案页底部「下载这个播放器文件」可导出当前 .html，双击即可离线运行。":"Use \"Download this player file\" at the bottom of the profile page to export the .html; double-click it to run offline.","退出全屏":"Exit Fullscreen","确认":"Confirm","取消":"Cancel","搜索歌词":"Search Lyrics","用回歌名":"Use Song Title","正在搜索…":"Searching…","拖动移动 · 滚轮/双指缩放":"Drag to move · Wheel/pinch to zoom","缩小":"Zoom out","放大":"Zoom in","按住图片拖动可以把人脸对准圆形选区，滚轮、双指或下方滑杆可缩放；圆圈内即为最终头像。":"Drag the image to center the face in the circle; zoom with wheel, pinch or the slider below. Inside the circle is the final avatar.","已自动恢复本地数据":"Local data restored","本地":"Local","在线":"Online","加载中…":"Loading…","搜索中…":"Searching…","无结果 —— 改个关键词再搜，或用「打开 .lrc 歌词文件」":"No results — try other keywords, or \"Open .lrc lyrics file\"",
+"排行榜":"Charts","音乐排行榜：把榜单歌曲加入歌单播放":"Music charts: add chart songs to a playlist","榜单来源":"Source","网易云（官方榜单）":"NetEase (official charts)","酷狗（官方榜单）":"Kugou (official charts)","↻ 刷新":"↻ Refresh","强制刷新（忽略当天缓存）":"Force refresh (ignore today's cache)","全部加入歌单":"Add All","把当前榜单全部歌曲加入当前歌单（自动跳过已有）":"Add every song of this chart to the current playlist (duplicates skipped)","加入当前歌单":"Add to current playlist","加入歌单后点歌即可播放：播放器会自动搜索这首歌，接上现有的播放、缓存、歌词链路；重复的歌会自动跳过。":"After adding, tap a song to play: the player searches for it automatically and reuses the usual playback, caching and lyrics pipeline; duplicates are skipped.",
   /* ---- v1.3.30 新增：均衡器/界面补漏 ---- */
   "自定义":"Custom","均衡":"EQ","均衡器":"Equalizer","拖动滑块实时生效":"Sliders apply in real time",
   "前级增益":"Preamp","全部归零":"Reset All","保存为自定义":"Save as Custom",
