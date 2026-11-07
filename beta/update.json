@@ -3,6 +3,12 @@
   "code": 86,
   "channel": "beta",
   "url": "https://github.com/asirshop/winamper-player/releases/download/v1.8.20-beta2/winamper-gold-v1.8.20-beta2.apk",
-  "notes": [],
+  "notes": [
+    "横屏适配修补 + 播放状态更诚实",
+    "- 修复：横屏时左右两栏结合处按键被遮挡（窄横屏下工具条放不下整行溢出，现自动换行、皮肤框可收缩，任何宽度都完整可见）",
+    "- 修复：歌曲信息窗的封面图超出边框（转屏后尺寸没跟着重算；现在横屏一律按窗高自适应，竖屏转屏后也会自动重算）",
+    "- 改进：切歌后「显示播放中但进度不动」分不清没源还是在缓存——现在会实时显示「缓冲中 N%」，缓存有没有在涨一眼可辨；链接真失效仍会弹错误提示",
+    "- 补充：播放中/已暂停/缓冲中等状态文字补齐英文词条"
+  ],
   "page": "https://asirshop.github.io/winamper-player/beta/"
 }
