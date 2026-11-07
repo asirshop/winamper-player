@@ -2204,7 +2204,7 @@ function applyVolume(instant){
   audioB.volume=g;                        /* audioB 永不接图 */
   audio.volume =elAttachedA?1:g;
   const gv=(elAttachedO||elAttachedA)?g:(isMobile?g:g);   /* gain 始终同步当前音量 */
-  if(gainNode&&actx){ if(instant) gainNode.gain.setValueAtTime(gv,actx.currentTime); else gainNode.gain.setTargetAtTime(gv,actx.currentTime,.02); }
+  if(gainNode&&actx){ if(instant){ try{ gainNode.gain.value=gv; }catch(e){} gainNode.gain.setValueAtTime(gv,actx.currentTime); } else gainNode.gain.setTargetAtTime(gv,actx.currentTime,.02); }
   var _vb=$('volBar'); if(_vb) _vb.style.setProperty('--v', g); $('volNum').textContent=Math.round(g*100);
 }
 
@@ -2326,6 +2326,68 @@ function watchCtxState(){
     });
   }catch(e){}
 }
+/* ===== 播放静音守卫（v1.8.17）=====
+   现场：连续快速切歌几次后，进度条在走但没声音；点一下暂停再播放就恢复。
+   原因：切歌会把增益淡到 0 再拉回，快速连切时 AudioContext 也可能被系统挂起
+   （suspended），媒体元素照常解码、时间轴照走，但 Web Audio 图不处理 → 静音。
+   旧代码只在 statechange 里重试一次 resume()，失败后没人再管，只能等用户下一次点按
+   （用户手势允许 resume）才活过来——这正是「暂停再播放就好了」的原因。
+   守卫每 1.5 秒核一次：上下文没跑就拉回、增益与滑块不一致就对齐、元素被悄悄暂停就续播；
+   频谱连续全零则重挂输出链，仍不行就自动做一次用户验证有效的「暂停→播放」。 */
+let __guardZero=0, __rearming=false;
+function silentGuard(){
+  try{
+    if(!state.playing){ __guardZero=0; return; }
+    const el=activeEl;
+    if(!el||!el.src){ __guardZero=0; return; }
+    /* 1) 上下文没在跑：头号原因，持续拉回（一次失败下一轮还会再试） */
+    if(actx&&actx.state!=='running'){
+      try{ actx.resume().catch(function(){}); }catch(e){}
+      applyVolume(true);
+    }
+    /* 2) 增益被压到 0 或与滑块不一致（切歌淡出没来得及拉回） */
+    if(actx&&gainNode){
+      const want=clamp(state.vol==null?1:state.vol,0,1);
+      let cur=want;
+      try{ cur=gainNode.gain.value; }catch(e){}
+      if(Math.abs(cur-want)>0.04) applyVolume(true);
+    }
+    /* 3) 元素被系统悄悄暂停，UI 还认为在播 */
+    if(el.paused){
+      try{ el.play().catch(function(){}); }catch(e){}
+      return;
+    }
+    /* 4) 有数据、进度在走，频谱却持续全零 → 重挂；再不行软重启 */
+    if(el===audioO&&sourceO&&el.readyState>=3){
+      let zero=false;
+      try{ zero=!alive(getFreq()); }catch(e){ zero=false; }
+      if(zero){
+        if(++__guardZero===3) reattachO();
+        else if(__guardZero>6){ __guardZero=0; softRearm(); }
+      } else __guardZero=0;
+    } else __guardZero=0;
+  }catch(e){}
+}
+function softRearm(){
+  /* 就是用户手动做过的那一下：暂停→播放。同一位置续上，UI 不闪 */
+  if(__rearming) return;
+  const el=activeEl; if(!el||!el.src) return;
+  __rearming=true;
+  const t=el.currentTime||0;
+  try{ el.pause(); }catch(e){}
+  state.playing=true; setIcon(true);           /* 别让 pause 事件把 UI 切成暂停 */
+  setTimeout(function(){
+    try{
+      ensureCtx();
+      if(actx&&actx.state!=='running'){ try{ actx.resume().catch(function(){}); }catch(e){} }
+      applyVolume(true);
+      try{ el.currentTime=t; }catch(e){}
+      try{ el.play().catch(function(){}); }catch(e){}
+    }catch(e){}
+    setTimeout(function(){ __rearming=false; },400);
+  },180);
+}
+setInterval(silentGuard,1500);
 /* 媒体元素异常自愈：stalled / waiting / 长时间无进展 */
 (function(){
   ['waiting','stalled'].forEach(function(ev){
@@ -3142,8 +3204,19 @@ function updateDisplay(){
 }
 function play(){
   if(!activeEl.src){ toast('当前歌曲不可播放','warn'); return; }
-  if(activeEl===audio||activeEl===audioO){ ensureCtx(); if(actx&&actx.state==='suspended'){ try{ actx.resume().catch(function(){}); }catch(e){} } }
-  activeEl.play().then(()=>{ state.playing=true; setIcon(true); updateDisplay(); }).catch(()=>toast('播放失败，可能是文件不可用','err'));
+  if(activeEl===audio||activeEl===audioO){ ensureCtx(); if(actx&&actx.state!=='running'){ try{ actx.resume().catch(function(){}); }catch(e){} } }
+  applyVolume(true);                     /* 切歌时增益被淡到 0：播放前先按滑块对齐 */
+  let tried=0;
+  (function attempt(){
+    tried++;
+    activeEl.play().then(()=>{ state.playing=true; setIcon(true); updateDisplay(); })
+      .catch(()=>{
+        /* 快速连切时 play() 常被「新的加载请求」打断（AbortError），不是文件坏了：
+           400ms 后再试一次，别第一次失败就报错，也别留下「在走但没声」的半死状态 */
+        if(tried<2){ setTimeout(function(){ if(activeEl&&activeEl.src) attempt(); },400); }
+        else toast('播放失败，可能是文件不可用','err');
+      });
+  })();
 }
 function pause(){ activeEl.pause(); state.playing=false; setIcon(false); updateDisplay(); cachePaint(); }
 function toggle(){ if(state.playing) pause(); else play(); }
@@ -4735,9 +4808,17 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.8.16';
-const APP_CODE = 80;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.8.17';
+const APP_CODE = 81;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.8.17', code:81, date:'2026-11-07', notes:[
+    '修复连续切歌几次后「进度在走但没声音」',
+    '- 现象：连续快速切歌后，进度条照常前进却完全没声音；点一下暂停再播放，缓存完就恢复',
+    '- 原因：切歌时把增益淡到 0 再拉回，快速连切时音频上下文会被系统挂起（suspended），媒体元素仍在解码走时间轴，但声音链路不再处理 → 静音；旧代码只重试恢复一次，失败后只能等用户下一次点按',
+    '- 对策：新增常驻「静音守卫」，每 1.5 秒核对一次——上下文没运行就拉回、增益与音量滑块不一致就对齐、元素被系统悄悄暂停就续播；频谱连续全零则重挂输出链，仍无声就自动做一次「暂停→播放」（你自己验证有效的那个动作）',
+    '- 播放失败不再直接报错：快速连切时 play() 常被新的加载打断，现在会自动重试一次，避免留下半死状态',
+    '- 用户主动暂停不会被守卫抢着播，只修「UI 认为在播却没声」的情况'
+  ]},
   { v:'1.8.16', code:80, date:'2026-11-07', notes:[
     '排行榜按钮配色与状态优化',
     '- 「刷新」「全部加入歌单」此前是浏览器默认白底，现改为跟面板一致的主题样式：「全部加入歌单」为主题色主按钮、「刷新」为常规按钮，悬停/按下都有反馈',
@@ -6645,12 +6726,15 @@ window.__wm={
   __setAud:function(el,pos){ audEl=el; audPos=pos; },
   /* 仅供测试：歌词持久化（v1.8.14） */
   lyricKey:lyricKey, lyricPut:lyricPut, lyricGet:lyricGet, migrateLyrics:migrateLyrics,
-  /* 仅供测试：排行榜（v1.8.15） */
-  chartHttp:chartHttp, chartLoadCharts:chartLoadCharts, chartSelect:chartSelect,
+  /* 仅供测试：排行榜（v1.8.15） */  chartHttp:chartHttp, chartLoadCharts:chartLoadCharts, chartSelect:chartSelect,
   addChartSongs:addChartSongs, resolveTrackByName:resolveTrackByName,
   get chartSongs(){ return chartSongs; }, get chartCharts(){ return chartCharts; },
   __chartState:function(){ return {src:chartSrcId, cur:chartCur, nCh:chartCharts.length, nSg:chartSongs.length}; },
   __chartCacheClear:function(){ try{ localStorage.removeItem(CHART_KEY); }catch(e){} },
+  /* 仅供测试：静音守卫（v1.8.17） */
+  __silentGuard:silentGuard, softRearm:softRearm,
+  __setActiveEl:function(el){ activeEl=el; },
+  get actx(){ return actx; }, get gainNode(){ return gainNode; },
   saveStore:saveStore, loadStore:loadStore, flushSave:flushSave,
   get plistsRaw(){ return plists(); },
   get diskOk(){ return diskOk; }
