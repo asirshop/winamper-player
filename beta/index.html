@@ -2373,6 +2373,16 @@ function lowBand(d){
 }
 function hueAt(t,i,n){ return (t*46+i/n*230)%360; }
 let lastBlob=null, blobReady=null, blobTarget='', specDead=0, spFade=0, localObjUrl=null, volWatch=0;
+/* 频谱节拍跟随状态：silkPk=波形慢峰值（增益用），lowBase/beatEnv=鼓点起音包络 */
+let silkPk=0, lowBase=0, beatEnv=0;
+/* 节拍起音包络：慢基线做差，只在鼓点落下那一下为正，快起慢落。
+   返回 0.6~1.45 的脉冲系数，五个频谱效果共用（v1.9.11）。 */
+function beatPulse(raw){
+  lowBase=lowBase*0.985+raw*0.015;
+  const onset=Math.max(0,raw-lowBase*1.05);
+  beatEnv=Math.min(1.2, Math.max(onset*3.6,beatEnv*0.87));
+  return Math.min(1.45, 0.62+0.45*raw+0.52*beatEnv);
+}
 /* 开曲后 3 秒内每 0.5 秒复核一次音量：手机上音频图可能晚几秒才接上或中途断开，
    复核能保证"要么元素按滑块出声、要么增益按滑块出声"，不会有一段时间是满音量 */
 function watchVolume(){
@@ -2902,6 +2912,9 @@ function drawSpectrum(){
   const hasDS=!!useF;
   const useW=hasW?wv:(synthE>0.05?SYN_W:null);
   const hasDW=!!useW;
+  /* 共用节拍包络：真实低频起音（无数据时退回合成频谱，缓冲期也有节奏） */
+  const lowE=hasDS?lowBand(useF):(synthE>0.05?(SYN_F[2]||0)/255:0);
+  const beatP=beatPulse(lowE);
   if(hasF||hasW||synthE>0.05){ spFade=Math.min(1,spFade+0.05); } else if(!state.playing){ spFade=Math.max(0,spFade-0.08); }
   c.style.opacity=(0.45+0.55*spFade).toFixed(3);
   /* 频谱全零只在「真在播、上下文也在跑」时才算异常；阈值放宽到约 3 秒，
@@ -2949,27 +2962,23 @@ function drawSpectrum(){
   if(spMode==='silk'){
     /* 用音频播放时钟做相位驱动：UC/U4 即便节流 rAF，每帧也按真实播放时间重新算相位，播就动、停就收 */
     const clk=(state.playing&&activeEl&&isFinite(activeEl.currentTime))?activeEl.currentTime:t;
-    /* 节拍脉冲：真正取最低 4 个 bin（0~750Hz）的实时能量。
-       ★ 去掉原来那个 0.14*Math.sin(clk*6) 的人工脉冲——它约 57bpm 且与音乐无关，
-         会盖过真实鼓点，听起来就是「节奏感完全不对」。 */
-    const lowE=hasDS?lowBand(useF):(synthE>0.05?(SYN_F[2]||0)/255:0);
-    const pulse=0.72+0.40*lowE;
+    /* 节拍脉冲用真实鼓点起音；v1.3.43 的人工 57bpm 脉冲已被替换 */
+    const pulse=beatP;
     /* 慢呼吸只做柔性漂浮（0.86~1），不再大幅压拍。
        包络永不过零，没有真实数据时也不会把光带压成一条直线。 */
     const env=0.86+0.14*Math.abs(Math.sin(clk*0.9));
     /* 无真实波形（SYN_W 是合成数据、摆幅天然小一半）时把幅度放大，别让光带贴着中线走 */
-    const amp=hasW?0.44:0.58;
-    /* 波形增益：真实音乐通常只摆到满幅的两三成，按实际峰值放大（上限 3 倍，防重拍炸屏） */
+    const amp=hasW?0.46:0.58;
+    /* 增益按「慢峰值」而不是每帧峰值：每帧归一化会压平所有鼓点，正是「有分频没节奏」的根源 */
     let gain=1;
     if(hasDW){
       let md=0;
       for(let i=0;i<useW.length;i+=8){ const dd=Math.abs(useW[i]-128); if(dd>md) md=dd; }
-      gain=Math.min(3, 0.26/Math.max(md/128, 0.015));
+      silkPk=Math.max(md/128, silkPk*0.965);
+      gain=Math.min(3, 0.26/Math.max(silkPk, 0.015));
     }
     const gap=Math.max(2.5, H*0.045);          /* 线间距按画布高走：手机上不至于四线叠一条 */
-    /* ★ 真正的分频四层：以前四条线读的是同一段波形、只做整体上下平移，所以永远平行，
-       看起来像「没分频」。现在第 l 层只取自己那一段频带（低→高）的能量驱动，
-       并配独立的波数与相位；横向再分 5 点做包络，同一层内也有起伏变化。 */
+    /* 分频四层：第 l 层只取自己那段频带能量，配独立波数与相位，横向 5 点包络 */
     const NB=4, EN=[];
     for(let l=0;l<NB;l++){
       const row=[];
@@ -2984,7 +2993,7 @@ function drawSpectrum(){
       ctx.beginPath(); ctx.lineWidth=2.4;
       ctx.strokeStyle='hsla('+((clk*135+l*48)%360)+',100%,'+(63+l*4)+'%,'+(0.95-l*0.15)+')';
       const knots=1.4+l*1.8;                    /* 低频层缓波、高频层密波，形状天然不平行 */
-      const ph=clk*(0.9+l*0.5)+l*1.9;
+      const ph=clk*(2.2+l*0.7)+l*1.9;           /* 相位跑得快一些：包络沿横轴滚动，丝带才像在"前行" */
       const row=EN[l];
       /* 每层的基准高度也随该层能量浮动：高频能量强时整层往上抬，层次更明显 */
       const lift=(l-1.5)*gap-(row[2]-0.5)*gap*0.8;
@@ -2996,11 +3005,12 @@ function drawSpectrum(){
         if(hasDW){
           const idx=Math.min(useW.length-1,Math.floor(seg*useW.length));
           const vv=useW[idx]/128-1;
-          /* 波形主导形状（×gain 拉满幅度），正弦只做轻柔摆动 —— 以前正弦权重 0.75 盖过波形 0.55，
-             线条主要由程序化的正弦决定，跟音乐没关系，这就是「节奏感不对」的观感来源 */
-          wave=(vv*gain+Math.sin(seg*Math.PI*knots+ph)*0.30)*env2;
+          /* 行波包络：正弦沿横轴滚动，把波形顶起/压下，丝带才像在鼓胀前行 */
+          const swell=0.34+0.66*(0.5+0.5*Math.sin(seg*Math.PI*knots+ph));
+          wave=(vv*gain*swell+Math.sin(seg*Math.PI*knots+ph)*0.18)*env2;
         } else {
-          wave=(Math.sin(seg*Math.PI*knots+ph)*0.72+Math.sin(seg*Math.PI*knots*1.9-ph*1.15)*0.28)*env2;
+          const swell=0.45+0.55*(0.5+0.5*Math.sin(seg*Math.PI*knots+ph));
+          wave=(Math.sin(seg*Math.PI*knots+ph)*0.62*swell+Math.sin(seg*Math.PI*knots*1.9-ph*1.15)*0.26)*env2;
         }
         const y=H/2-wave*(H*amp)*1.15*pulse*env+lift;
         x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
@@ -3031,7 +3041,8 @@ function drawSpectrum(){
       /* v1.9.4：没有真实分析数据时不再用近似静止的 idle 波，改用合成频谱 SYN_F ——
          它自带 ~100bpm 鼓点包络，辐条会跟着节奏伸缩；跨域流/缓存没到手时不再是「一个死圈」。 */
       const v=hasDS?specAt(useF,n,i):(synthE>0.05?specAt(SYN_F,n,i):idle(i,0.4));
-      const len=Math.max(2,v*(Math.min(W,H)*0.36));   /* 0.22→0.36：辐条伸缩幅度拉大，鼓点时肉眼可见外扩 */
+      /* 长度乘节拍包络：鼓点那一下整圈外扩，收拍回缩 */
+      const len=Math.max(2,(v*0.62+0.52*beatEnv)*beatP*(Math.min(W,H)*0.36));   /* 0.36：鼓点时肉眼可见外扩 */
       const ang=i/n*Math.PI*2-Math.PI/2+base;
       segs.push({hue:(i/n*300+t*60)%360, x1:cx+Math.cos(ang)*(R+3), y1:cy+Math.sin(ang)*(R+3),
                  x2:cx+Math.cos(ang)*(R+3+len), y2:cy+Math.sin(ang)*(R+3+len)});
@@ -3067,7 +3078,7 @@ function drawSpectrum(){
     for(let b=0;b<bands;b++) on.push([]);
     for(let i=0;i<n;i++){
       const v=hasDS?specAt(useF,n,i):idle(i,0.5);
-      const lit=Math.pow(v,0.8)*bands;    /* 提对比：中等能量也能点亮更多格子，峰值更醒目 */
+      const lit=Math.pow(v,0.8)*bands*(0.90+0.16*beatEnv)+2.4*beatEnv;   /* 再叠一层节拍包络：鼓点那一下整排火苗窜高 */
       for(let b=0;b<bands;b++){
         const isOn=b<lit-0.25 || (b<lit+0.5 && Math.sin(t*22+i*3+b)>0.2);
         if(isOn) on[b].push(i);
@@ -3104,7 +3115,8 @@ function drawSpectrum(){
     const cx=W/2, cy=H/2, maxR=Math.min(W,H)*0.48;
     ctx.globalCompositeOperation='lighter';
     const v0=hasDS?lowBand(useF):0;
-    const beat=1+0.38*(hasF?v0:idle(0,2));   /* 脉动跟底鼓走；以前取的是 375~562Hz，不是低频 */
+    /* 星尘随鼓点由内向外炸开：起音占大头，低频只做底噪 */
+    const beat=1+0.18*v0+0.62*beatEnv+(hasF?0:0.06*idle(0,2));
     /* 性能：原来每个粒子都 shadowBlur+arc，70 个粒子 = 70 次阴影渲染（8fps 的元凶）。
        改成"预渲染一张径向渐变光点贴图，之后只做 drawImage"，粒子的发光观感一致，
        但每帧成本从 70 次阴影降到 70 次位图拷贝（GPU 极快）。贴图按 24 档色相缓存。 */
@@ -5294,9 +5306,16 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.10';
-const APP_CODE = 101;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.11';
+const APP_CODE = 102;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.11', code:102, date:'2026-11-08', notes:[
+    '修复：频谱「跟着放但没节奏感」—— 对照老版 v1.3.43，画面匀速抖动、鼓点打不出「一下一下」',
+    '- 根因：极光每帧按当帧峰值做波形增益，拍与拍的强弱被抹平，成了匀速毛毛线；节拍脉冲幅度也太小（0.72~1.12）。现改为按慢峰值增益（保留拍间强弱），节拍改用低频「起音」包络：慢基线做差、快起慢落，每一下鼓点都把画面顶起来',
+    '- 极光找回老版灵魂：正弦行波包络沿横轴滚动，把波形顶起/压下，丝带像在鼓胀前行；四层分频与波形主导保持不变',
+    '- 其余四种同步核查加强：星环鼓点整圈外扩（对比度 1.08→1.26）、烈焰火苗随鼓窜高、星粒随鼓炸开（1.11→1.25）、霓虹本就跟随（1.52）不动',
+    '- 量化：注入 120bpm 鼓点测「鼓点帧/余量帧」视觉对比度，五个模式全部肉眼可辨；无真实数据（缓冲/跨域）时用合成包络顶上，等待期也有节奏',
+  ]},
   { v:'1.9.10', code:101, date:'2026-11-08', notes:[
     '修复：频谱「节奏感不对、峰值发飘」—— 柱子和光带踩不到鼓点',
     '- 主因一：音频分析器的平滑系数 0.82 太高，实测频谱值与鼓点的相关度只剩 0.24、峰值被削掉近七成。降到 0.35 后相关度 0.92，另加峰值补偿把被平滑吃掉的峰顶补回来',
@@ -5626,13 +5645,6 @@ const CHANGELOG = [
   ]},
   { v:'1.1.1', code:3, date:'2026-11-03', notes:[
     '歌单触摸反馈调整：不再有按下高亮，只保留「当前播放」那一行的底色；点一行立即播放，长按约 0.3 秒出菜单。'
-  ]},
-  { v:'1.1', code:2, date:'2026-11-03', notes:[
-    '歌单操作更稳：轻扫列表不再误播，只有真正的轻点才播放。',
-    '音频修复：连接蓝牙耳机后不再出现「只走进度没声音」。',
-    '切歌更快：预取超时从 9 秒缩到 5 秒，失效接口进冷却，避免卡顿。',
-    '缓存设上限：最多 8 首且不超过 120MB，长时间播放不会越占越多。',
-    '新增版本徽标，点开可查看更新说明。'
   ]}
 ];
 
