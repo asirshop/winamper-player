@@ -2240,7 +2240,7 @@ $('fxSel').addEventListener('change',e=>{
   state.fxOn = state.fx!=='flat';
   ensureCtx(); applyFX(state.fx,state.fxOn);
   renderEqPanel(); refreshFxOff(); savePrefs();
-  toast('音效：'+$('fxSel').selectedOptions[0].text);
+  toast('音效：'+$('fxSel').selectedOptions[0].text+(fxLive()?'':'（在线流暂不经音效，缓存完成或下载后生效）'));
 });
 $('qualitySel').addEventListener('change',e=>{
   state.quality=e.target.value; $('qualitySel').classList.remove('q-warn'); savePrefs();
@@ -2265,6 +2265,19 @@ function refreshFxOff(){
    现在：只有确认接进音频图才把元素音量让给增益节点，否则元素自己按滑块出声；
    手机上一律用元素音量（增益固定 1），断链也不会炸耳。 */
 function usingGraph(){ try{ return !!(actx&&gainNode&&actx.state==='running'); }catch(e){ return false; } }
+/* 当前音效到底有没有真的串在音频通路上。
+   均衡器是 Web Audio 的滤波器节点，只有「已经接入音频图」的元素才受它影响：
+   本地歌曲（audio）与同源缓存（audioO 的 blob）都接图，音效立刻生效；
+   在线网络流走 audioB 原生输出（跨域，接图会被 CORS 判为不可读而静音），
+   整条 Web Audio 链被绕过 —— 此时选任何预设都不会有变化，这不是开关坏了。 */
+function fxLive(){
+  try{
+    if(!usingGraph()) return false;
+    if(activeEl===audio) return !!source;
+    if(activeEl===audioO) return !!(sourceO&&audioO.getAttribute('data-blob')==='1');
+    return false;                        /* audioB：原生输出，永不接图 */
+  }catch(e){ return false; }
+}
 function volByElement(){ try{ return !!isMobile; }catch(e){ return false; } }
 function applyVolume(instant){
   const g=clamp(state.vol==null?1:state.vol,0,1);
@@ -5148,7 +5161,7 @@ function buildEqPanel(){
       const lab=wrap.querySelector('[data-eqv="'+i+'"]'); if(lab) lab.textContent=(v>0?'+':'')+v;
       markEqPreset('custom');
       if($('fxSel')) $('fxSel').value='custom';
-      ensureCtx(); applyFX('custom',state.fxOn); state.fxOn=true; refreshFxOff();
+      ensureCtx(); state.fxOn=true; applyFX('custom',true); refreshFxOff();
       drawEqCurve();
     });
   });
@@ -5184,8 +5197,16 @@ function renderEqPanel(){
           }
         }
         state.fx=k;
+        /* ★ 顺序不能反：先算 fxOn 再 applyFX。
+           旧写法把 applyFX 放在前面，用的还是上一次的 fxOn ——
+           从「原声」切到任意预设时 on=false，增益被全部写成 0，
+           表现就是「点了预设没反应，再点一次才生效」。 */
+        state.fxOn=(k!=='flat');
         if($('fxSel')) $('fxSel').value=k;
-        ensureCtx(); applyFX(k,state.fxOn); state.fxOn=(k!=='flat'); refreshFxOff();
+        ensureCtx(); applyFX(k,state.fxOn); refreshFxOff();
+        /* 在线流走原生输出，整条 Web Audio 链被绕过：这里如实说一句，
+           否则「点了预设没变化」会被当成功能坏了 */
+        if(!fxLive()) toast('在线流暂不经均衡器，缓存完成或下载后生效');
         syncEqSliders();
         requestAnimationFrame(drawEqCurve);
         savePrefs();
@@ -5223,7 +5244,7 @@ if($('eqReset')){
     state.eqCustom=new Array(FX_BANDS.length).fill(0);
     state.fx='custom';
     if($('fxSel')) $('fxSel').value='custom';
-    ensureCtx(); applyFX('custom',state.fxOn); state.fxOn=true; refreshFxOff();
+    ensureCtx(); state.fxOn=true; applyFX('custom',true); refreshFxOff();
     syncEqSliders(); savePrefs();
     toast('已全部归零');
   });
@@ -5241,9 +5262,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.12';
-const APP_CODE = 103;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.13';
+const APP_CODE = 104;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.13', code:104, date:'2026-11-08', notes:[
+    '修复：网页版/安卓「音效选了没反应」—— 均衡器面板里第一次点预设不生效，要再点一次才好',
+    '- 根因：套用预设时先调应用函数、后改「音效已开启」标记，从「原声」切到任意预设的第一次，增益被写成全零。已改为先算标记再应用（预设按钮、拖滑块、归零三处同修）',
+    '- 另说明：在线网络流走浏览器原生输出、不经过音频图，此时选音效不会有变化，缓存完成或下载后立即生效；现在会明确提示，不再让人以为开关坏了',
+  ]},
   { v:'1.9.12', code:103, date:'2026-11-08', notes:[
     '回退：频谱观感整体恢复为 v1.3.43 经典算法 —— 老版的样子原样找回',
     '- 五种效果（霓虹/极光/星环/烈焰/星粒）的绘制公式、频率映射、分析器平滑（0.82）、极光的行波丝带与节拍脉冲，全部与 v1.3.43 逐字节一致',
@@ -5571,15 +5597,6 @@ const CHANGELOG = [
   { v:'1.3.2', code:7, date:'2026-11-03', notes:[
     '音效/音质下拉宽度重新分配，比例更协调。',
     '按钮与下拉框整体配色优化：悬停微亮、按下下压，激活态改为柔光效果。'
-  ]},
-  { v:'1.3.1', code:6, date:'2026-11-03', notes:[
-    '音效区改版：取消独立的音效开关（选「原声」即关闭），原位置改为「均衡器」按钮。'
-  ]},
-  { v:'1.3.0', code:5, date:'2026-11-03', notes:[
-    '新增均衡器：5 段（60/230/910/3.6k/14kHz）竖向滑块实时调节，预设一键套用，可保存自定义曲线。',
-    '新增收藏与最近播放：歌单上方新增「❤ 收藏」「最近播放」标签页，播放过的歌自动记录（最多 50 条）。',
-    '新增定时关闭：可选 15/30/60/90 分钟或播完当前这首后停止，到时音量渐弱后停止，按钮显示剩余分钟。',
-    '版本号统一由单一来源生成，杜绝「装了新版却显示旧界面」。'
   ]},
 ];
 
