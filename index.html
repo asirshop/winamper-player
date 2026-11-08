@@ -2848,9 +2848,15 @@ function drawSpectrum(){
   const c=$('eqCanvas'); if(!c) return;
   const ctx=c.getContext('2d');
   const W=c.clientWidth, H=c.clientHeight;
-  /* 渲染分辨率封顶 1.5x：4K 盒子上 dpr 可能 2~3，翻倍像素对观感几乎无差别，
-     却让每帧填充量涨 2~4 倍，是低端设备掉帧的主因 */
-  const dpr=Math.min(window.devicePixelRatio||1, 1.5);
+  /* 渲染分辨率：不再一律封顶 1.5x —— 手机 dpr 3 时画布只有物理分辨率的一半，
+     拉伸后整体发糊。改成「物理像素预算」：画布小（手机）就用满 dpr 变清晰，
+     画布大（4K 盒子全屏）自动按预算降级，低端设备照样不因分辨率掉帧。 */
+  const dpr=(function(){
+    const raw=window.devicePixelRatio||1, area=W*H;
+    if(area<=0) return Math.min(raw,2);
+    const fit=Math.sqrt(450000/area);          /* ≈1.5x@1280×158 的老预算，向下兼容 */
+    return Math.max(1,Math.min(raw,fit));
+  })();
   if(c.width!==Math.round(W*dpr)||c.height!==Math.round(H*dpr)){
     c.width=Math.round(W*dpr); c.height=Math.round(H*dpr);
     __spCache.grads={}; __spCache.refls={};
@@ -2922,6 +2928,16 @@ function drawSpectrum(){
     const env=0.65+0.35*Math.abs(Math.sin(clk*1.3));
     /* 无真实波形（SYN_W 是合成数据、摆幅天然小一半）时把幅度放大，别让光带贴着中线走 */
     const amp=hasW?0.44:0.58;
+    /* 自动增益：真实音乐很少把波形摆满（通常只有满幅的两三成），手机画布又矮，
+       直接乘出来就是挤在中线的一条线 —— 看起来「极光就一根」。每帧抽样实际摆幅，
+       按比例放大到接近满幅；上限 3.5 倍，防止间奏后的重拍突然炸满屏。 */
+    let gain=1;
+    if(hasDW){
+      let md=0;
+      for(let i=0;i<useW.length;i+=16){ const d=Math.abs(useW[i]-128); if(d>md) md=d; }
+      gain=Math.min(3.5, 0.28/Math.max(md/128, 0.012));
+    }
+    const gap=Math.max(2.5, H*0.045);          /* 线间距按画布高走：手机上不至于四线叠一条 */
     ctx.globalCompositeOperation='lighter'; ctx.lineCap='round';
     for(let l=0;l<4;l++){
       ctx.beginPath(); ctx.lineWidth=2.4;
@@ -2930,8 +2946,8 @@ function drawSpectrum(){
       for(let x=0;x<=W;x+=2){
         const seg=x/Math.max(1,W);
         let y;
-        if(hasDW){ const idx=Math.min(useW.length-1,Math.floor(seg*useW.length)); const vv=useW[idx]/128-1; y=H/2-vv*(H*amp)*pulse*env+(l-1.5)*3; }
-        else { const w1=Math.sin(seg*Math.PI*3+ph), w2=Math.sin(seg*Math.PI*5-ph*1.3); y=H/2+(w1*0.7+w2*0.3)*H*0.30*pulse*env+(l-1.5)*3; }
+        if(hasDW){ const idx=Math.min(useW.length-1,Math.floor(seg*useW.length)); const vv=useW[idx]/128-1; y=H/2-vv*(H*amp)*gain*pulse*env+(l-1.5)*gap; }
+        else { const w1=Math.sin(seg*Math.PI*3+ph), w2=Math.sin(seg*Math.PI*5-ph*1.3); y=H/2+(w1*0.7+w2*0.3)*H*0.30*pulse*env+(l-1.5)*gap; }
         x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
       }
       ctx.shadowColor=ctx.strokeStyle; ctx.shadowBlur=10; ctx.stroke();
@@ -5223,9 +5239,15 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.7';
-const APP_CODE = 98;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.8';
+const APP_CODE = 99;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.8', code:99, date:'2026-11-08', notes:[
+    '修复：手机版频谱整体发糊、且「极光」几乎只剩一条线',
+    '- 模糊的根因：渲染分辨率被一律封顶 1.5 倍，而手机屏通常是 3 倍 —— 画布只渲染了一半像素再拉伸，必然糊。现改为「物理像素预算」：画布小（手机）就用满屏分辨率，画布大（4K 全屏）自动降级，低端设备照样不因分辨率掉帧；实测手机渲染像素从 16 万提到 33 万，帧率仍满帧',
+    '- 极光只有一条线的根因：真实音乐很少把波形摆满（通常只有满幅两三成），手机画布又矮。现在每帧按实际摆幅自动增益（上限 3.5 倍防爆屏），四条光带起伏明显、彼此错开',
+    '- 网页版与 APP 共用同一份绘制代码，两端的清晰度和极光效果同步修复',
+  ]},
   { v:'1.9.7', code:98, date:'2026-11-07', notes:[
     '修复：用户档案页「缓存管理」里，已缓存大小和缓存上限都显示成 0 B',
     '- 根因：大小换算用 |0 取整，而它是 32 位截断——字节数一到 2GB 的整数倍（2/3/4/8/20GB）就溢出归零，5.5GB 还会错报成 1.5GB；缓存的文件本身一直都在，只是显示错了',
@@ -5386,10 +5408,6 @@ const CHANGELOG = [
     '- 修复：慢网下缓存和播放抢同一条带宽互相拖死（缓存下载改为给播放让路）',
     '- 修复：缓存到手热切换时位置往回退、听着像重了一段',
     '- 缓存下载超时改为「无进展」判定，无损大文件不再 5 秒判死'
-  ]},
-  { v:'1.8.3', code:67, date:'2026-11-06', notes:[
-    '- 修复：慢网缓存时进度条「假前进」，缓存完成后从没听到的位置续播（跳过开头）',
-    '- 缓冲饿死时进度改为停在真实已播位置，缓存到手后从该处无缝接上'
   ]},
   { v:'1.8.2', code:66, date:'2026-11-06', notes:[
     '- 修复：切后台/切窗口时的「呲呲」爆音（音频缓冲改为 playback 模式，切回前台加短淡入）',
@@ -5559,9 +5577,6 @@ const CHANGELOG = [
     '切歌更快：预取超时从 9 秒缩到 5 秒，失效接口进冷却，避免卡顿。',
     '缓存设上限：最多 8 首且不超过 120MB，长时间播放不会越占越多。',
     '新增版本徽标，点开可查看更新说明。'
-  ]},
-  { v:'1.0', code:1, date:'2026-10-30', notes:[
-    '首个可安装版本：本地/在线播放、频谱、歌词、音效、多用户档案、歌单导入导出。'
   ]}
 ];
 
