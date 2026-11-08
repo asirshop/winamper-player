@@ -2928,26 +2928,41 @@ function drawSpectrum(){
     const env=0.65+0.35*Math.abs(Math.sin(clk*1.3));
     /* 无真实波形（SYN_W 是合成数据、摆幅天然小一半）时把幅度放大，别让光带贴着中线走 */
     const amp=hasW?0.44:0.58;
-    /* 自动增益：真实音乐很少把波形摆满（通常只有满幅的两三成），手机画布又矮，
-       直接乘出来就是挤在中线的一条线 —— 看起来「极光就一根」。每帧抽样实际摆幅，
-       按比例放大到接近满幅；上限 3.5 倍，防止间奏后的重拍突然炸满屏。 */
-    let gain=1;
-    if(hasDW){
-      let md=0;
-      for(let i=0;i<useW.length;i+=16){ const d=Math.abs(useW[i]-128); if(d>md) md=d; }
-      gain=Math.min(3.5, 0.28/Math.max(md/128, 0.012));
-    }
     const gap=Math.max(2.5, H*0.045);          /* 线间距按画布高走：手机上不至于四线叠一条 */
+    /* ★ 真正的分频四层：以前四条线读的是同一段波形、只做整体上下平移，所以永远平行，
+       看起来像「没分频」。现在第 l 层只取自己那一段频带（低→高）的能量驱动，
+       并配独立的波数与相位；横向再分 5 点做包络，同一层内也有起伏变化。 */
+    const NB=4, EN=[];
+    for(let l=0;l<NB;l++){
+      const row=[];
+      for(let k=0;k<=4;k++){
+        row.push(hasDS?(specAt(useF,20,l*4+k)||0)
+                      :(0.42+0.30*Math.abs(Math.sin(clk*0.85+l*1.3+k*0.7))));
+      }
+      EN.push(row);
+    }
     ctx.globalCompositeOperation='lighter'; ctx.lineCap='round';
-    for(let l=0;l<4;l++){
+    for(let l=0;l<NB;l++){
       ctx.beginPath(); ctx.lineWidth=2.4;
       ctx.strokeStyle='hsla('+((clk*135+l*48)%360)+',100%,'+(63+l*4)+'%,'+(0.95-l*0.15)+')';
-      const ph=clk*(5.2+l*1.3)+l*1.9;
+      const knots=1.7+l*2.3;                    /* 低频层缓波、高频层密波，形状天然不平行 */
+      const ph=clk*(1.1+l*0.62)+l*1.9;
+      const row=EN[l];
+      /* 每层的基准高度也随该层能量浮动：高频能量强时整层往上抬，层次更明显 */
+      const lift=(l-1.5)*gap-(row[2]-0.5)*gap*0.8;
       for(let x=0;x<=W;x+=2){
         const seg=x/Math.max(1,W);
-        let y;
-        if(hasDW){ const idx=Math.min(useW.length-1,Math.floor(seg*useW.length)); const vv=useW[idx]/128-1; y=H/2-vv*(H*amp)*gain*pulse*env+(l-1.5)*gap; }
-        else { const w1=Math.sin(seg*Math.PI*3+ph), w2=Math.sin(seg*Math.PI*5-ph*1.3); y=H/2+(w1*0.7+w2*0.3)*H*0.30*pulse*env+(l-1.5)*gap; }
+        const fp=seg*4, k0=Math.floor(fp), k1=Math.min(4,k0+1), ft=fp-k0;
+        const env2=0.18+0.82*(row[k0]*(1-ft)+row[k1]*ft);   /* 横向包络 + 18% 保底：高频段能量天然低，不让那层完全躺平 */
+        let wave;
+        if(hasDW){
+          const idx=Math.min(useW.length-1,Math.floor(seg*useW.length));
+          const vv=useW[idx]/128-1;
+          wave=(vv*0.55+Math.sin(seg*Math.PI*knots+ph)*0.75)*env2;   /* 波形细节 + 本层走势 */
+        } else {
+          wave=(Math.sin(seg*Math.PI*knots+ph)*0.72+Math.sin(seg*Math.PI*knots*1.9-ph*1.15)*0.28)*env2;
+        }
+        const y=H/2-wave*(H*amp)*1.35*pulse*env+lift;
         x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
       }
       ctx.shadowColor=ctx.strokeStyle; ctx.shadowBlur=10; ctx.stroke();
@@ -5239,9 +5254,14 @@ if($('eqSaveCustom')){
 /* ================= 版本号与更新说明 =================
    APP_VER 是唯一版本来源：发布新版只改这两行 + 往 CHANGELOG 顶部加一条，
    标题栏徽标、页脚和"检查更新"比较全从这里取，不会出现三处对不上的情况。 */
-const APP_VER  = '1.9.8';
-const APP_CODE = 99;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
+const APP_VER  = '1.9.9';
+const APP_CODE = 100;                       /* 对应 android/app/build.gradle 的 versionCode，必须同步加 1 */
 const CHANGELOG = [
+  { v:'1.9.9', code:100, date:'2026-11-08', notes:[
+    '修复：「极光」四条光带永远平行，看起来像没分频',
+    '- 根因：四条线读的是同一段波形、只做整体上下平移，形状当然一样。现在每条光带只取自己那一段频带（低→高）的能量驱动，并配独立的波数与相位；横向再分 5 点做包络，同一层内也有粗细变化，四条线互相穿插、层次分明',
+    '- 其余四种模式（霓虹/星环/烈焰/星粒）逐一核查，均为逐频段驱动，无此问题',
+  ]},
   { v:'1.9.8', code:99, date:'2026-11-08', notes:[
     '修复：手机版频谱整体发糊、且「极光」几乎只剩一条线',
     '- 模糊的根因：渲染分辨率被一律封顶 1.5 倍，而手机屏通常是 3 倍 —— 画布只渲染了一半像素再拉伸，必然糊。现改为「物理像素预算」：画布小（手机）就用满屏分辨率，画布大（4K 全屏）自动降级，低端设备照样不因分辨率掉帧；实测手机渲染像素从 16 万提到 33 万，帧率仍满帧',
@@ -5408,10 +5428,6 @@ const CHANGELOG = [
     '- 修复：慢网下缓存和播放抢同一条带宽互相拖死（缓存下载改为给播放让路）',
     '- 修复：缓存到手热切换时位置往回退、听着像重了一段',
     '- 缓存下载超时改为「无进展」判定，无损大文件不再 5 秒判死'
-  ]},
-  { v:'1.8.2', code:66, date:'2026-11-06', notes:[
-    '- 修复：切后台/切窗口时的「呲呲」爆音（音频缓冲改为 playback 模式，切回前台加短淡入）',
-    '- 许可证更新为 AGPL-3.0，帮助页增加许可说明与链接'
   ]},
   { v:'1.8.1', code:65, date:'2026-11-06', notes:[
     '- 更新作者联系方式（QQ）'
