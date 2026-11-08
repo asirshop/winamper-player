@@ -1,12 +1,12 @@
 {
-  "version": "1.9.12",
-  "code": 103,
+  "version": "1.9.13",
+  "code": 104,
   "channel": "stable",
-  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.9.12/winamper-gold-v1.9.12.apk",
+  "url": "https://github.com/asirshop/winamper-player/releases/download/v1.9.13/winamper-gold-v1.9.13.apk",
   "notes": [
-    "回退：频谱观感整体恢复为 v1.3.43 经典算法 —— 老版的样子原样找回",
-    "- 五种效果（霓虹/极光/星环/烈焰/星粒）的绘制公式、频率映射、分析器平滑（0.82）、极光的行波丝带与节拍脉冲，全部与 v1.3.43 逐字节一致",
-    "- 仅保留两项与观感无关的优化：高分屏渲染清晰度、在线歌曲缓存到手自动接频谱"
+    "修复：网页版/安卓「音效选了没反应」—— 均衡器面板里第一次点预设不生效，要再点一次才好",
+    "- 根因：套用预设时先调应用函数、后改「音效已开启」标记，从「原声」切到任意预设的第一次，增益被写成全零。已改为先算标记再应用（预设按钮、拖滑块、归零三处同修）",
+    "- 另说明：在线网络流走浏览器原生输出、不经过音频图，此时选音效不会有变化，缓存完成或下载后立即生效；现在会明确提示，不再让人以为开关坏了"
   ],
   "page": "https://asirshop.github.io/winamper-player/"
 }
