@@ -7,13 +7,13 @@
       "url": "https://music-api.gdstudio.xyz/api.php",
       "kind": "gd",
       "builtin": true,
-      "alive": true
+      "alive": false
     }
   ],
   "lastProbe": {
-    "at": "2026-11-09 01:21:38",
-    "changed": 0,
-    "alive": 1,
+    "at": "2026-11-09 07:39:19",
+    "changed": 1,
+    "alive": 0,
     "total": 1
   }
 }
